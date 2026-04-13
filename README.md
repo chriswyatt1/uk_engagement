@@ -6,7 +6,7 @@ Built with Python + Plotly. Outputs an interactive HTML file and optionally an M
 ## Quickstart
 
 ```bash
-git clone https://github.com/chriswyatt1/uk_engagement.git
+git clone <your-repo-url>
 cd uk-engagement-map
 
 python3 -m venv venv
@@ -51,10 +51,39 @@ python3 uk_engagement_map.py --video
 
 Saves `output/uk_engagement.mp4`. Insert into PowerPoint via **Insert → Movies → Movie from File**.
 
-## Using a different data file
+## Options
+
+All visual settings are controlled via flags — no need to edit the script.
+
+| Flag | Options | Default | Description |
+|------|---------|---------|-------------|
+| `--pulse` | `on-change`, `always`, `never` | `on-change` | When to pulse dots |
+| `--speed` | `slow`, `normal`, `fast` | `normal` | Animation speed |
+| `--dot-scale` | any number | `2.0` | Base dot size multiplier |
+| `--pulse-amplitude` | 0–1 | `0.35` | How much pulsing dots grow/shrink |
+| `--data` | file path | `data/engagement.csv` | CSV data file to use |
+| `--video` | — | off | Also export an MP4 video |
+
+Examples:
 
 ```bash
-python3 uk_engagement_map.py --data path/to/mydata.csv
+# Default
+python3 uk_engagement_map.py
+
+# Pulse only dots that changed, fast animation
+python3 uk_engagement_map.py --pulse on-change --speed fast
+
+# No pulsing, larger dots
+python3 uk_engagement_map.py --pulse never --dot-scale 3.0
+
+# Everything plus video export
+python3 uk_engagement_map.py --pulse always --speed slow --video
+
+# Use a different CSV
+python3 uk_engagement_map.py --data data/my_data.csv
+
+# See all options
+python3 uk_engagement_map.py --help
 ```
 
 ## Output
@@ -63,15 +92,3 @@ python3 uk_engagement_map.py --data path/to/mydata.csv
 |------|-------------|
 | `output/uk_engagement_map.html` | Interactive map — open in any browser |
 | `output/uk_engagement.mp4` | Video export (with `--video` flag) |
-
-## Configuration
-
-Fine-grained animation settings are at the top of `uk_engagement_map.py`:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `N_PULSE_FRAMES` | 16 | Frames per pulse cycle — higher = smoother |
-| `PULSE_AMPLITUDE` | 0.30 | How much dots grow/shrink (0 = no pulse) |
-| `DOT_SCALE` | 2.0 | Base dot size multiplier |
-| `FRAME_DURATION` | 80 ms | Speed of animation playback |
-| `VIDEO_FPS` | 12 | Frames per second in MP4 export |

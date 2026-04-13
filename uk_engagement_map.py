@@ -3,15 +3,18 @@
 UK Engagement Map
 -----------------
 Reads location and engagement data from data/engagement.csv and produces
-an animated Plotly map with pulsing dots.
+an animated Plotly map. Dot size scales with engagement. Dots pulse only
+when their value changes between periods (or always/never — see options).
 
 Usage:
-    python3 uk_engagement_map.py              # opens interactive HTML in browser
-    python3 uk_engagement_map.py --video      # also exports uk_engagement.mp4
-
-To add a new location: add a row to data/engagement.csv.
-To add a new time period: add a column to data/engagement.csv.
-No changes to this script are needed.
+    python3 uk_engagement_map.py                        # defaults
+    python3 uk_engagement_map.py --pulse always         # always pulse
+    python3 uk_engagement_map.py --pulse never          # static dots
+    python3 uk_engagement_map.py --pulse on-change      # pulse only changed dots (default)
+    python3 uk_engagement_map.py --speed fast           # faster animation
+    python3 uk_engagement_map.py --dot-scale 3.0        # larger dots
+    python3 uk_engagement_map.py --video                # also export MP4
+    python3 uk_engagement_map.py --data path/to/file.csv
 
 Requirements:
     pip install -r requirements.txt
@@ -20,23 +23,31 @@ Requirements:
 import argparse
 import math
 import os
+
 import pandas as pd
 import plotly.graph_objects as go
 
+
 # ─────────────────────────────────────────────
-#  CONFIG — tweak these if needed
+#  DEFAULTS (overridden by CLI flags)
 # ─────────────────────────────────────────────
 
-DATA_FILE        = "data/engagement.csv"
-OUTPUT_HTML      = "output/uk_engagement_map.html"
-OUTPUT_VIDEO     = "output/uk_engagement.mp4"
-FRAMES_DIR       = "output/_frames"
+DEFAULTS = dict(
+    data            = "data/engagement.csv",
+    pulse           = "on-change",   # always | on-change | never
+    dot_scale       = 2.0,           # base dot size multiplier
+    pulse_amplitude = 0.35,          # how much changed dots grow/shrink (0-1)
+    speed           = "normal",      # slow | normal | fast
+    n_pulse_frames  = 16,            # frames per pulse cycle
+    video           = False,
+)
 
-N_PULSE_FRAMES   = 16    # frames per pulse cycle (higher = smoother)
-PULSE_AMPLITUDE  = 0.30  # dot size variation 0–1  (0 = no pulse)
-DOT_SCALE        = 2.0   # base dot size multiplier
-FRAME_DURATION   = 80    # milliseconds per frame during playback
-VIDEO_FPS        = 12    # frames per second in exported MP4
+SPEED_MS = {"slow": 120, "normal": 80, "fast": 45}
+
+OUTPUT_HTML  = "output/uk_engagement_map.html"
+OUTPUT_VIDEO = "output/uk_engagement.mp4"
+FRAMES_DIR   = "output/_frames"
+VIDEO_FPS    = 12
 
 
 # ─────────────────────────────────────────────
@@ -51,37 +62,78 @@ def load_data(path):
         raise ValueError(f"CSV is missing columns: {missing}")
     time_cols = [c for c in df.columns if c not in required]
     if not time_cols:
-        raise ValueError("CSV has no time-period columns (expected at least one beyond name/lat/lon).")
+        raise ValueError("CSV has no time-period columns.")
     return df, time_cols
+
+
+# ─────────────────────────────────────────────
+#  DOT SIZE HELPERS
+# ─────────────────────────────────────────────
+
+def dot_size(engagement_value, scale):
+    """Base dot size: larger value -> larger dot (square-root compressed)."""
+    return max(6, math.sqrt(engagement_value) * scale)
+
+def pulsed_sizes(eng, prev_eng, pulse_mode, scale, amplitude, t):
+    """
+    Return (dot_sizes, ring_sizes, ring_opacity) for one animation frame.
+
+    pulse_mode : 'always' | 'on-change' | 'never'
+    t          : current phase angle in radians
+    """
+    sizes      = []
+    ring_sizes = []
+
+    for i, e in enumerate(eng):
+        base    = dot_size(e, scale)
+        changed = (eng[i] != prev_eng[i])
+
+        if pulse_mode == "never" or (pulse_mode == "on-change" and not changed):
+            pf = 1.0
+        else:
+            pf = 1 + amplitude * math.sin(t)
+
+        sizes.append(base * pf)
+
+        rf = 1.7 + 0.55 * math.sin(t + math.pi / 2)
+        ring_sizes.append(base * (rf if pf > 1.0 else 1.7))
+
+    ring_opacity = max(0.0, 0.12 + 0.13 * math.sin(t + math.pi / 2))
+    if pulse_mode == "never":
+        ring_opacity = 0.0
+
+    return sizes, ring_sizes, ring_opacity
 
 
 # ─────────────────────────────────────────────
 #  BUILD FIGURE
 # ─────────────────────────────────────────────
 
-def build_figure(df, time_cols):
+def build_figure(df, time_cols, opts):
     lats  = df["lat"].tolist()
     lons  = df["lon"].tolist()
     names = df["name"].tolist()
     max_e = df[time_cols].values.max()
 
     engagement = {col: df[col].tolist() for col in time_cols}
+    scale      = opts.dot_scale
+    amplitude  = opts.pulse_amplitude
+    pulse_mode = opts.pulse
+    n_frames   = DEFAULTS["n_pulse_frames"]
+    frame_dur  = SPEED_MS[opts.speed]
 
-    frames = []
+    frames       = []
     slider_steps = []
 
-    for step_label in time_cols:
-        eng = engagement[step_label]
+    for step_idx, step_label in enumerate(time_cols):
+        eng      = engagement[step_label]
+        prev_eng = engagement[time_cols[step_idx - 1]] if step_idx > 0 else eng
 
-        for pulse_i in range(N_PULSE_FRAMES):
-            t = 2 * math.pi * pulse_i / N_PULSE_FRAMES
-
-            pf        = 1 + PULSE_AMPLITUDE * math.sin(t)
-            dot_sizes = [max(5, math.sqrt(e) * DOT_SCALE * pf) for e in eng]
-
-            rf           = 1.7 + 0.55 * math.sin(t + math.pi / 2)
-            ring_sizes   = [max(8, math.sqrt(e) * DOT_SCALE * rf) for e in eng]
-            ring_opacity = max(0, 0.12 + 0.13 * math.sin(t + math.pi / 2))
+        for pulse_i in range(n_frames):
+            t = 2 * math.pi * pulse_i / n_frames
+            dot_sizes, ring_sizes, ring_opacity = pulsed_sizes(
+                eng, prev_eng, pulse_mode, scale, amplitude, t
+            )
 
             frame_name = f"{step_label}_{pulse_i:02d}"
             frames.append(go.Frame(
@@ -123,8 +175,9 @@ def build_figure(df, time_cols):
             )],
         ))
 
+    # Initial state: first time period, no pulse
     init_eng   = engagement[time_cols[0]]
-    init_sizes = [max(5, math.sqrt(e) * DOT_SCALE) for e in init_eng]
+    init_sizes = [dot_size(e, scale) for e in init_eng]
 
     fig = go.Figure(
         data=[
@@ -147,7 +200,7 @@ def build_figure(df, time_cols):
                 lat=lats, lon=lons, mode="markers",
                 marker=dict(
                     size=[s * 1.7 for s in init_sizes],
-                    color="rgba(0,0,0,0)", opacity=0.15,
+                    color="rgba(0,0,0,0)", opacity=0.0,
                     line=dict(width=2, color="#7c3aed"),
                 ),
                 hoverinfo="skip",
@@ -171,10 +224,12 @@ def build_figure(df, time_cols):
             type="buttons", showactive=False,
             x=0.05, y=0.0, xanchor="left", yanchor="top",
             buttons=[
-                dict(label="▶  Play", method="animate",
-                     args=[None, dict(frame=dict(duration=FRAME_DURATION, redraw=True),
-                                      fromcurrent=True, transition=dict(duration=0))]),
-                dict(label="⏸  Pause", method="animate",
+                dict(label="Play", method="animate",
+                     args=[None, dict(
+                         frame=dict(duration=frame_dur, redraw=True),
+                         fromcurrent=True, transition=dict(duration=0),
+                     )]),
+                dict(label="Pause", method="animate",
                      args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate")]),
             ],
         )],
@@ -200,12 +255,12 @@ def export_video(fig):
         import imageio
         import plotly.io as pio
     except ImportError:
-        print("Video export requires: pip install kaleido \"imageio[ffmpeg]\"")
+        print('Video export requires: pip install kaleido "imageio[ffmpeg]"')
         return
 
     os.makedirs(FRAMES_DIR, exist_ok=True)
     n = len(fig.frames)
-    print(f"Rendering {n} frames…")
+    print(f"Rendering {n} frames...")
 
     for i, frame in enumerate(fig.frames):
         f = go.Figure(data=frame.data, layout=fig.layout)
@@ -220,7 +275,49 @@ def export_video(fig):
         for i in range(n):
             writer.append_data(imageio.imread(f"{FRAMES_DIR}/f{i:04d}.png"))
 
-    print(f"Saved video → {OUTPUT_VIDEO}")
+    print(f"Saved video -> {OUTPUT_VIDEO}")
+
+
+# ─────────────────────────────────────────────
+#  CLI
+# ─────────────────────────────────────────────
+
+def parse_args():
+    p = argparse.ArgumentParser(
+        description="Animated UK engagement map.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+examples:
+  python3 uk_engagement_map.py
+  python3 uk_engagement_map.py --pulse always --speed fast
+  python3 uk_engagement_map.py --pulse never --dot-scale 3.0
+  python3 uk_engagement_map.py --video
+  python3 uk_engagement_map.py --data data/my_data.csv
+        """,
+    )
+    p.add_argument("--data",
+                   default=DEFAULTS["data"],
+                   help=f"CSV data file (default: {DEFAULTS['data']})")
+    p.add_argument("--pulse",
+                   default=DEFAULTS["pulse"],
+                   choices=["always", "on-change", "never"],
+                   help="When to pulse dots (default: on-change)")
+    p.add_argument("--dot-scale",
+                   default=DEFAULTS["dot_scale"],
+                   type=float, metavar="N",
+                   help=f"Dot size multiplier (default: {DEFAULTS['dot_scale']})")
+    p.add_argument("--pulse-amplitude",
+                   default=DEFAULTS["pulse_amplitude"],
+                   type=float, metavar="N",
+                   help=f"Pulse size variation 0-1 (default: {DEFAULTS['pulse_amplitude']})")
+    p.add_argument("--speed",
+                   default=DEFAULTS["speed"],
+                   choices=["slow", "normal", "fast"],
+                   help="Animation speed (default: normal)")
+    p.add_argument("--video",
+                   action="store_true",
+                   help="Also export an MP4 video")
+    return p.parse_args()
 
 
 # ─────────────────────────────────────────────
@@ -228,26 +325,21 @@ def export_video(fig):
 # ─────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="UK Engagement Map")
-    parser.add_argument("--video", action="store_true",
-                        help="Export an MP4 video in addition to HTML")
-    parser.add_argument("--data", default=DATA_FILE,
-                        help=f"Path to CSV data file (default: {DATA_FILE})")
-    args = parser.parse_args()
-
+    opts = parse_args()
     os.makedirs("output", exist_ok=True)
 
-    print(f"Loading data from {args.data}…")
-    df, time_cols = load_data(args.data)
-    print(f"  {len(df)} locations, {len(time_cols)} time periods: {time_cols}")
+    print(f"Loading data from {opts.data}...")
+    df, time_cols = load_data(opts.data)
+    print(f"  {len(df)} locations, {len(time_cols)} periods: {time_cols}")
+    print(f"  pulse={opts.pulse}, dot-scale={opts.dot_scale}, speed={opts.speed}")
 
-    print("Building figure…")
-    fig = build_figure(df, time_cols)
+    print("Building figure...")
+    fig = build_figure(df, time_cols, opts)
 
     fig.write_html(OUTPUT_HTML)
-    print(f"Saved interactive map → {OUTPUT_HTML}")
+    print(f"Saved -> {OUTPUT_HTML}")
 
-    if args.video:
+    if opts.video:
         export_video(fig)
 
     fig.show()
