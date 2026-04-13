@@ -23,8 +23,10 @@ Requirements:
 """
 
 import argparse
+import json
 import math
 import os
+import warnings
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -74,7 +76,10 @@ def load_data(path):
 # ─────────────────────────────────────────────
 
 def dot_size(engagement_value, scale):
-    """Base dot size: larger value -> larger dot (square-root compressed)."""
+    """Base dot size: larger value -> larger dot (square-root compressed).
+    Returns 0 for zero/negative engagement so the city is invisible."""
+    if engagement_value <= 0:
+        return 0
     return max(6, math.sqrt(engagement_value) * scale)
 
 def pulsed_sizes(eng, prev_eng, pulse_mode, scale, amplitude, t):
@@ -88,6 +93,12 @@ def pulsed_sizes(eng, prev_eng, pulse_mode, scale, amplitude, t):
     ring_sizes = []
 
     for i, e in enumerate(eng):
+        if e <= 0:
+            # City has no engagement this period — keep it invisible
+            sizes.append(0)
+            ring_sizes.append(0)
+            continue
+
         base    = dot_size(e, scale)
         changed = (eng[i] != prev_eng[i])
 
@@ -125,35 +136,40 @@ def build_figure(df, time_cols, opts):
     n_frames   = DEFAULTS["n_pulse_frames"]
     frame_dur  = SPEED_MS[opts.speed]
     satellite  = (opts.map_style == "satellite")
+    if satellite:
+        # Scattermapbox is deprecated in favour of Scattermap, but Scattermap
+        # doesn't support Plotly.redraw()-driven animation. Suppress the noise.
+        warnings.filterwarnings("ignore", message=".*scattermapbox.*",
+                                category=DeprecationWarning)
 
-    def dot_traces(dot_sizes, ring_sizes, ring_opacity, eng):
-        """Return (main_trace, ring_trace) for the chosen map style."""
-        label_color  = "white" if satellite else "#555"
-        cbar_color   = "white" if satellite else "#333"
+    def dot_traces(dot_sizes, ring_sizes, ring_opacity, eng, texts):
+        """Return (main_trace, ring_trace) for the chosen map style.
+        `texts` is a per-city label list — empty string hides the label."""
+        label_color = "white" if satellite else "#555"
+        cbar_color  = "white" if satellite else "#333"
         colorbar = dict(
             title=dict(text="People<br>Engaged", font=dict(size=11, color=cbar_color)),
             thickness=12, len=0.6,
             tickfont=dict(color=cbar_color),
         )
         if satellite:
-            main = go.Scattermap(
+            main = go.Scattermapbox(
                 lat=lats, lon=lons, mode="markers+text",
                 marker=dict(
                     size=dot_sizes, color=eng,
                     colorscale="Plasma", cmin=0, cmax=max_e,
                     colorbar=colorbar,
-                    opacity=0.9, allowoverlap=True,
+                    opacity=0.9,
                 ),
-                text=names, textposition="top right",
+                text=texts, textposition="top right",
                 textfont=dict(size=11, color=label_color),
                 hovertemplate="<b>%{text}</b><br>Engaged: %{marker.color:.0f}<extra></extra>",
             )
-            ring = go.Scattermap(
+            # Scattermapbox has no marker.line, so a filled ring looks like a
+            # halo. Keep the trace (to maintain trace count) but always invisible.
+            ring = go.Scattermapbox(
                 lat=lats, lon=lons, mode="markers",
-                marker=dict(
-                    size=ring_sizes, color="rgba(0,0,0,0)",
-                    opacity=ring_opacity,
-                ),
+                marker=dict(size=1, color="#a78bfa", opacity=0),
                 hoverinfo="skip",
             )
         else:
@@ -165,7 +181,7 @@ def build_figure(df, time_cols, opts):
                     colorbar=colorbar,
                     opacity=0.85, line=dict(width=1.5, color="white"),
                 ),
-                text=names, textposition="top center",
+                text=texts, textposition="top center",
                 textfont=dict(size=10, color=label_color),
                 hovertemplate="<b>%{text}</b><br>Engaged: %{marker.color:.0f}<extra></extra>",
             )
@@ -179,70 +195,86 @@ def build_figure(df, time_cols, opts):
             )
         return main, ring
 
-    frames       = []
-    slider_steps = []
+    # Satellite: Scattermapbox doesn't support go.Frame animation, so we collect
+    # raw frame data and drive animation via JS instead.
+    # Vector: use Plotly's native go.Frame animation (works fine with Scattergeo).
+    sat_frame_data = []
+    period_texts   = []   # per-period label arrays for the satellite JS driver
+    plotly_frames  = []
+    slider_steps   = []
 
     for step_idx, step_label in enumerate(time_cols):
         eng      = engagement[step_label]
         prev_eng = engagement[time_cols[step_idx - 1]] if step_idx > 0 else eng
+        # Label is shown only when a city has engagement; empty string hides it
+        texts    = [n if e > 0 else "" for n, e in zip(names, eng)]
+
+        if satellite:
+            period_texts.append(texts)
 
         for pulse_i in range(n_frames):
             t = 2 * math.pi * pulse_i / n_frames
             dot_sizes, ring_sizes, ring_opacity = pulsed_sizes(
                 eng, prev_eng, pulse_mode, scale, amplitude, t
             )
-            main_trace, ring_trace = dot_traces(dot_sizes, ring_sizes, ring_opacity, eng)
-            frames.append(go.Frame(
-                name=f"{step_label}_{pulse_i:02d}",
-                data=[main_trace, ring_trace],
-            ))
+            if satellite:
+                sat_frame_data.append({
+                    'ds': dot_sizes,
+                    'e':  list(eng),
+                })
+            else:
+                main_trace, ring_trace = dot_traces(dot_sizes, ring_sizes, ring_opacity, eng, texts)
+                plotly_frames.append(go.Frame(
+                    name=f"{step_label}_{pulse_i:02d}",
+                    data=[main_trace, ring_trace],
+                ))
 
-        slider_steps.append(dict(
-            label=step_label,
-            method="animate",
-            args=[[f"{step_label}_00"], dict(
-                mode="immediate",
-                frame=dict(duration=0, redraw=True),
-                transition=dict(duration=0),
-            )],
-        ))
+        if satellite:
+            # "skip" lets the slider move visually; JS handles the actual update
+            slider_steps.append(dict(label=step_label, method="skip"))
+        else:
+            slider_steps.append(dict(
+                label=step_label,
+                method="animate",
+                args=[[f"{step_label}_00"], dict(
+                    mode="immediate",
+                    frame=dict(duration=0, redraw=True),
+                    transition=dict(duration=0),
+                )],
+            ))
 
     # Initial state: first time period, no pulse
     init_eng   = engagement[time_cols[0]]
     init_sizes = [dot_size(e, scale) for e in init_eng]
-    init_main, init_ring = dot_traces(init_sizes, [s * 1.7 for s in init_sizes], 0.0, init_eng)
+    init_texts = [n if e > 0 else "" for n, e in zip(names, init_eng)]
+    init_main, init_ring = dot_traces(init_sizes, [s * 1.7 for s in init_sizes], 0.0, init_eng, init_texts)
 
-    fig = go.Figure(data=[init_main, init_ring], frames=frames)
+    fig = go.Figure(data=[init_main, init_ring], frames=plotly_frames)
 
     # Map background — branch on style
     title_color = "white" if satellite else "#333"
     if satellite:
         map_layout = dict(
-            map=dict(
-                style={
-                    "version": 8,
-                    "sources": {
-                        "esri-satellite": {
-                            "type": "raster",
-                            "tiles": [
-                                "https://server.arcgisonline.com/ArcGIS/rest/services/"
-                                "World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                            ],
-                            "tileSize": 256,
-                            "attribution": "Imagery \u00a9 Esri",
-                        }
-                    },
-                    "layers": [{
-                        "id": "esri-satellite-layer",
-                        "type": "raster",
-                        "source": "esri-satellite",
-                    }],
-                },
+            mapbox=dict(
+                style="white-bg",
                 center=dict(lat=54.5, lon=-2.5),
                 zoom=4.8,
+                layers=[{
+                    "below": "traces",
+                    "sourcetype": "raster",
+                    "source": [
+                        "https://server.arcgisonline.com/ArcGIS/rest/services/"
+                        "World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                    ],
+                    "sourceattribution": "Imagery \u00a9 Esri",
+                }],
             ),
             paper_bgcolor="#0d1117",
         )
+        play_buttons = [
+            dict(label="Play",  method="skip"),
+            dict(label="Pause", method="skip"),
+        ]
     else:
         map_layout = dict(
             geo=dict(
@@ -256,6 +288,15 @@ def build_figure(df, time_cols, opts):
             ),
             paper_bgcolor="white",
         )
+        play_buttons = [
+            dict(label="Play", method="animate",
+                 args=[None, dict(
+                     frame=dict(duration=frame_dur, redraw=True),
+                     fromcurrent=True, transition=dict(duration=0),
+                 )]),
+            dict(label="Pause", method="animate",
+                 args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate")]),
+        ]
 
     fig.update_layout(
         title=dict(
@@ -266,16 +307,8 @@ def build_figure(df, time_cols, opts):
         **map_layout,
         updatemenus=[dict(
             type="buttons", showactive=False,
-            x=0.05, y=0.0, xanchor="left", yanchor="top",
-            buttons=[
-                dict(label="Play", method="animate",
-                     args=[None, dict(
-                         frame=dict(duration=frame_dur, redraw=True),
-                         fromcurrent=True, transition=dict(duration=0),
-                     )]),
-                dict(label="Pause", method="animate",
-                     args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate")]),
-            ],
+            x=0.01, y=0.99, xanchor="left", yanchor="top",
+            buttons=play_buttons,
         )],
         sliders=[dict(
             active=0, steps=slider_steps,
@@ -287,7 +320,79 @@ def build_figure(df, time_cols, opts):
         height=620, margin=dict(t=50, b=80, l=10, r=90),
     )
 
-    return fig
+    post_script = (
+        _satellite_post_script(sat_frame_data, period_texts, n_frames, len(time_cols), frame_dur)
+        if satellite else None
+    )
+    return fig, post_script
+
+
+# ─────────────────────────────────────────────
+#  SATELLITE JS ANIMATION DRIVER
+# ─────────────────────────────────────────────
+
+def _satellite_post_script(sat_frame_data, period_texts, n_pulse_frames, n_periods, frame_dur):
+    """Return JS injected into the HTML to drive satellite animation.
+
+    Scattermapbox traces don't support Plotly's go.Frame animation engine.
+    Instead we mutate gd.data directly and call Plotly.redraw(), which
+    propagates changes through to the Mapbox rendering layer.
+    """
+    frames_json      = json.dumps(sat_frame_data)
+    period_texts_json = json.dumps(period_texts)
+    total = n_pulse_frames * n_periods
+    return f"""\
+(function() {{
+  var gd  = document.querySelector('.plotly-graph-div');
+  var fms = {frames_json};
+  var ptx = {period_texts_json};
+  var idx = 0, timer = null, ms = {frame_dur};
+  var np  = {n_pulse_frames}, tot = {total};
+  var curPeriod = 0;
+
+  function apply(i) {{
+    var f = fms[i];
+    var p = Math.floor(i / np);
+    gd.data[0].marker.size  = f.ds;
+    gd.data[0].marker.color = f.e;
+    // On period change: update labels and advance slider
+    if (p !== curPeriod) {{
+      curPeriod = p;
+      gd.data[0].text = ptx[p];
+      gd.layout.sliders[0].active = p;
+    }}
+    Plotly.redraw(gd);
+  }}
+
+  function tick()  {{ idx = (idx + 1) % tot; apply(idx); }}
+  function play()  {{ if (!timer) timer = setInterval(tick, ms); }}
+  function pause() {{ clearInterval(timer); timer = null; }}
+
+  // Primary: Plotly event API
+  gd.on('plotly_buttonclicked', function(e) {{
+    if (e.button.label === 'Play')  play();
+    if (e.button.label === 'Pause') pause();
+  }});
+
+  gd.on('plotly_sliderchange', function(e) {{
+    pause();
+    curPeriod = e.slider.active;
+    idx = curPeriod * np;
+    apply(idx);
+  }});
+
+  // Fallback: direct DOM click capture in case Plotly swallows the event
+  gd.addEventListener('click', function(e) {{
+    var el = e.target;
+    for (var i = 0; i < 8; i++) {{
+      if (!el || el === gd) break;
+      var txt = (el.textContent || '').trim();
+      if (txt === 'Play')  {{ play();  return; }}
+      if (txt === 'Pause') {{ pause(); return; }}
+      el = el.parentElement;
+    }}
+  }}, true);
+}})();"""
 
 
 # ─────────────────────────────────────────────
@@ -383,9 +488,10 @@ def main():
     print(f"  pulse={opts.pulse}, dot-scale={opts.dot_scale}, speed={opts.speed}, map-style={opts.map_style}")
 
     print("Building figure...")
-    fig = build_figure(df, time_cols, opts)
+    fig, post_script = build_figure(df, time_cols, opts)
 
-    fig.write_html(OUTPUT_HTML)
+    write_kwargs = {"post_script": post_script} if post_script else {}
+    fig.write_html(OUTPUT_HTML, **write_kwargs)
     print(f"Saved -> {OUTPUT_HTML}")
 
     if opts.video:
