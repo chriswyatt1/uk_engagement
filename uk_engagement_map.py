@@ -13,6 +13,8 @@ Usage:
     python3 uk_engagement_map.py --pulse on-change      # pulse only changed dots (default)
     python3 uk_engagement_map.py --speed fast           # faster animation
     python3 uk_engagement_map.py --dot-scale 3.0        # larger dots
+    python3 uk_engagement_map.py --map-style satellite  # satellite imagery background
+    python3 uk_engagement_map.py --map-style vector     # classic vector map (default)
     python3 uk_engagement_map.py --video                # also export MP4
     python3 uk_engagement_map.py --data path/to/file.csv
 
@@ -39,6 +41,7 @@ DEFAULTS = dict(
     pulse_amplitude = 0.35,          # how much changed dots grow/shrink (0-1)
     speed           = "normal",      # slow | normal | fast
     n_pulse_frames  = 16,            # frames per pulse cycle
+    map_style       = "vector",      # vector | satellite
     video           = False,
 )
 
@@ -121,6 +124,60 @@ def build_figure(df, time_cols, opts):
     pulse_mode = opts.pulse
     n_frames   = DEFAULTS["n_pulse_frames"]
     frame_dur  = SPEED_MS[opts.speed]
+    satellite  = (opts.map_style == "satellite")
+
+    def dot_traces(dot_sizes, ring_sizes, ring_opacity, eng):
+        """Return (main_trace, ring_trace) for the chosen map style."""
+        label_color  = "white" if satellite else "#555"
+        cbar_color   = "white" if satellite else "#333"
+        colorbar = dict(
+            title=dict(text="People<br>Engaged", font=dict(size=11, color=cbar_color)),
+            thickness=12, len=0.6,
+            tickfont=dict(color=cbar_color),
+        )
+        if satellite:
+            main = go.Scattermap(
+                lat=lats, lon=lons, mode="markers+text",
+                marker=dict(
+                    size=dot_sizes, color=eng,
+                    colorscale="Plasma", cmin=0, cmax=max_e,
+                    colorbar=colorbar,
+                    opacity=0.9, allowoverlap=True,
+                ),
+                text=names, textposition="top right",
+                textfont=dict(size=11, color=label_color),
+                hovertemplate="<b>%{text}</b><br>Engaged: %{marker.color:.0f}<extra></extra>",
+            )
+            ring = go.Scattermap(
+                lat=lats, lon=lons, mode="markers",
+                marker=dict(
+                    size=ring_sizes, color="rgba(0,0,0,0)",
+                    opacity=ring_opacity,
+                ),
+                hoverinfo="skip",
+            )
+        else:
+            main = go.Scattergeo(
+                lat=lats, lon=lons, mode="markers+text",
+                marker=dict(
+                    size=dot_sizes, color=eng,
+                    colorscale="Viridis", cmin=0, cmax=max_e,
+                    colorbar=colorbar,
+                    opacity=0.85, line=dict(width=1.5, color="white"),
+                ),
+                text=names, textposition="top center",
+                textfont=dict(size=10, color=label_color),
+                hovertemplate="<b>%{text}</b><br>Engaged: %{marker.color:.0f}<extra></extra>",
+            )
+            ring = go.Scattergeo(
+                lat=lats, lon=lons, mode="markers",
+                marker=dict(
+                    size=ring_sizes, color="rgba(0,0,0,0)",
+                    opacity=ring_opacity, line=dict(width=2, color="#7c3aed"),
+                ),
+                hoverinfo="skip",
+            )
+        return main, ring
 
     frames       = []
     slider_steps = []
@@ -134,35 +191,10 @@ def build_figure(df, time_cols, opts):
             dot_sizes, ring_sizes, ring_opacity = pulsed_sizes(
                 eng, prev_eng, pulse_mode, scale, amplitude, t
             )
-
-            frame_name = f"{step_label}_{pulse_i:02d}"
+            main_trace, ring_trace = dot_traces(dot_sizes, ring_sizes, ring_opacity, eng)
             frames.append(go.Frame(
-                name=frame_name,
-                data=[
-                    go.Scattergeo(
-                        lat=lats, lon=lons, mode="markers+text",
-                        marker=dict(
-                            size=dot_sizes, color=eng,
-                            colorscale="Viridis", cmin=0, cmax=max_e,
-                            colorbar=dict(
-                                title=dict(text="People<br>Engaged", font=dict(size=11)),
-                                thickness=12, len=0.6,
-                            ),
-                            opacity=0.85, line=dict(width=1.5, color="white"),
-                        ),
-                        text=names, textposition="top center",
-                        textfont=dict(size=10, color="#555"),
-                        hovertemplate="<b>%{text}</b><br>Engaged: %{marker.color:.0f}<extra></extra>",
-                    ),
-                    go.Scattergeo(
-                        lat=lats, lon=lons, mode="markers",
-                        marker=dict(
-                            size=ring_sizes, color="rgba(0,0,0,0)",
-                            opacity=ring_opacity, line=dict(width=2, color="#7c3aed"),
-                        ),
-                        hoverinfo="skip",
-                    ),
-                ],
+                name=f"{step_label}_{pulse_i:02d}",
+                data=[main_trace, ring_trace],
             ))
 
         slider_steps.append(dict(
@@ -178,48 +210,60 @@ def build_figure(df, time_cols, opts):
     # Initial state: first time period, no pulse
     init_eng   = engagement[time_cols[0]]
     init_sizes = [dot_size(e, scale) for e in init_eng]
+    init_main, init_ring = dot_traces(init_sizes, [s * 1.7 for s in init_sizes], 0.0, init_eng)
 
-    fig = go.Figure(
-        data=[
-            go.Scattergeo(
-                lat=lats, lon=lons, mode="markers+text",
-                marker=dict(
-                    size=init_sizes, color=init_eng,
-                    colorscale="Viridis", cmin=0, cmax=max_e,
-                    colorbar=dict(
-                        title=dict(text="People<br>Engaged", font=dict(size=11)),
-                        thickness=12, len=0.6,
-                    ),
-                    opacity=0.85, line=dict(width=1.5, color="white"),
-                ),
-                text=names, textposition="top center",
-                textfont=dict(size=10, color="#555"),
-                hovertemplate="<b>%{text}</b><br>Engaged: %{marker.color:.0f}<extra></extra>",
+    fig = go.Figure(data=[init_main, init_ring], frames=frames)
+
+    # Map background — branch on style
+    title_color = "white" if satellite else "#333"
+    if satellite:
+        map_layout = dict(
+            map=dict(
+                style={
+                    "version": 8,
+                    "sources": {
+                        "esri-satellite": {
+                            "type": "raster",
+                            "tiles": [
+                                "https://server.arcgisonline.com/ArcGIS/rest/services/"
+                                "World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                            ],
+                            "tileSize": 256,
+                            "attribution": "Imagery \u00a9 Esri",
+                        }
+                    },
+                    "layers": [{
+                        "id": "esri-satellite-layer",
+                        "type": "raster",
+                        "source": "esri-satellite",
+                    }],
+                },
+                center=dict(lat=54.5, lon=-2.5),
+                zoom=4.8,
             ),
-            go.Scattergeo(
-                lat=lats, lon=lons, mode="markers",
-                marker=dict(
-                    size=[s * 1.7 for s in init_sizes],
-                    color="rgba(0,0,0,0)", opacity=0.0,
-                    line=dict(width=2, color="#7c3aed"),
-                ),
-                hoverinfo="skip",
+            paper_bgcolor="#0d1117",
+        )
+    else:
+        map_layout = dict(
+            geo=dict(
+                scope="europe", resolution=50,
+                lonaxis=dict(range=[-9, 3]), lataxis=dict(range=[49, 62]),
+                showland=True,       landcolor="rgb(242, 237, 230)",
+                showcoastlines=True, coastlinecolor="rgb(155, 155, 155)", coastlinewidth=1,
+                showocean=True,      oceancolor="rgb(218, 232, 245)",
+                showcountries=True,  countrycolor="rgb(200, 200, 200)",
+                bgcolor="rgba(0,0,0,0)",
             ),
-        ],
-        frames=frames,
-    )
+            paper_bgcolor="white",
+        )
 
     fig.update_layout(
-        title=dict(text="UK Engagement Map", font=dict(size=16), x=0.5, xanchor="center"),
-        geo=dict(
-            scope="europe", resolution=50,
-            lonaxis=dict(range=[-9, 3]), lataxis=dict(range=[49, 62]),
-            showland=True,       landcolor="rgb(242, 237, 230)",
-            showcoastlines=True, coastlinecolor="rgb(155, 155, 155)", coastlinewidth=1,
-            showocean=True,      oceancolor="rgb(218, 232, 245)",
-            showcountries=True,  countrycolor="rgb(200, 200, 200)",
-            bgcolor="rgba(0,0,0,0)",
+        title=dict(
+            text="UK Engagement Map",
+            font=dict(size=16, color=title_color),
+            x=0.5, xanchor="center",
         ),
+        **map_layout,
         updatemenus=[dict(
             type="buttons", showactive=False,
             x=0.05, y=0.0, xanchor="left", yanchor="top",
@@ -236,10 +280,10 @@ def build_figure(df, time_cols, opts):
         sliders=[dict(
             active=0, steps=slider_steps,
             x=0.05, len=0.9, y=0, yanchor="top",
-            currentvalue=dict(prefix="Period: ", font=dict(size=12)),
+            currentvalue=dict(prefix="Period: ", font=dict(size=12, color=title_color)),
             transition=dict(duration=0),
         )],
-        paper_bgcolor="white", showlegend=False,
+        showlegend=False,
         height=620, margin=dict(t=50, b=80, l=10, r=90),
     )
 
@@ -289,6 +333,7 @@ def parse_args():
         epilog="""
 examples:
   python3 uk_engagement_map.py
+  python3 uk_engagement_map.py --map-style satellite
   python3 uk_engagement_map.py --pulse always --speed fast
   python3 uk_engagement_map.py --pulse never --dot-scale 3.0
   python3 uk_engagement_map.py --video
@@ -314,6 +359,10 @@ examples:
                    default=DEFAULTS["speed"],
                    choices=["slow", "normal", "fast"],
                    help="Animation speed (default: normal)")
+    p.add_argument("--map-style",
+                   default=DEFAULTS["map_style"],
+                   choices=["vector", "satellite"],
+                   help="Map background style: vector (default) or satellite imagery")
     p.add_argument("--video",
                    action="store_true",
                    help="Also export an MP4 video")
@@ -331,7 +380,7 @@ def main():
     print(f"Loading data from {opts.data}...")
     df, time_cols = load_data(opts.data)
     print(f"  {len(df)} locations, {len(time_cols)} periods: {time_cols}")
-    print(f"  pulse={opts.pulse}, dot-scale={opts.dot_scale}, speed={opts.speed}")
+    print(f"  pulse={opts.pulse}, dot-scale={opts.dot_scale}, speed={opts.speed}, map-style={opts.map_style}")
 
     print("Building figure...")
     fig = build_figure(df, time_cols, opts)
@@ -341,8 +390,6 @@ def main():
 
     if opts.video:
         export_video(fig)
-
-    fig.show()
 
 
 if __name__ == "__main__":
