@@ -220,12 +220,100 @@ BORING_LABELS = {
 }
 
 
-def _in_uk(lat, lon):
-    return 49 <= lat <= 62 and -9 <= lon <= 3
-
-
 def _interesting(company):
     return bool(company) and company not in BORING_LABELS
+
+
+# ─────────────────────────────────────────────
+#  MAP REGIONS
+# ─────────────────────────────────────────────
+
+# Each region needs:
+#   label   – subplot title
+#   bounds  – (lat_min, lat_max, lon_min, lon_max) or None for global
+#   large   – dot size for the newest point
+#   small   – dot size for older points
+#   geo     – kwargs merged into Scattergeo geo layout (vector mode)
+#   mapbox  – kwargs merged into Scattermapbox mapbox layout (satellite mode)
+REGIONS = {
+    "world": {
+        "label": "World", "bounds": None, "large": 18, "small": 10,
+        "geo":    dict(scope="world", projection_type="natural earth"),
+        "mapbox": dict(center=dict(lat=20, lon=10), zoom=0.8),
+    },
+    "europe": {
+        "label": "Europe", "bounds": (35, 72, -25, 50), "large": 20, "small": 11,
+        "geo":    dict(scope="europe"),
+        "mapbox": dict(center=dict(lat=54, lon=15), zoom=2.5),
+    },
+    "uk": {
+        "label": "United Kingdom", "bounds": (49, 62, -9, 3), "large": 22, "small": 12,
+        "geo":    dict(lonaxis=dict(range=[-9, 3]), lataxis=dict(range=[49, 62]), resolution=50),
+        "mapbox": dict(center=dict(lat=55, lon=-3), zoom=4.5),
+    },
+    "southeastuk": {
+        "label": "South East UK", "bounds": (50.5, 52.5, -1.5, 2.0), "large": 26, "small": 14,
+        "geo":    dict(lonaxis=dict(range=[-1.5, 2.0]), lataxis=dict(range=[50.5, 52.5]), resolution=50),
+        "mapbox": dict(center=dict(lat=51.5, lon=0.2), zoom=7.5),
+    },
+    "london": {
+        "label": "London", "bounds": (51.2, 51.8, -0.6, 0.4), "large": 30, "small": 16,
+        "geo":    dict(lonaxis=dict(range=[-0.6, 0.4]), lataxis=dict(range=[51.2, 51.8]), resolution=50),
+        "mapbox": dict(center=dict(lat=51.5, lon=-0.1), zoom=9.5),
+    },
+    "usa": {
+        "label": "United States", "bounds": (24, 50, -125, -66), "large": 22, "small": 12,
+        "geo":    dict(scope="usa"),
+        "mapbox": dict(center=dict(lat=38, lon=-97), zoom=2.8),
+    },
+    "australia": {
+        "label": "Australia", "bounds": (-44, -10, 113, 154), "large": 22, "small": 12,
+        "geo":    dict(lonaxis=dict(range=[113, 154]), lataxis=dict(range=[-44, -10])),
+        "mapbox": dict(center=dict(lat=-25, lon=134), zoom=2.8),
+    },
+}
+
+DEFAULT_REGIONS = ["world", "uk"]
+
+
+def _auto_zoom(lat_range, lon_range):
+    import math
+    return max(0.5, min(9.0, math.log2(180 / max(lat_range, lon_range, 0.1))))
+
+
+def parse_region(spec):
+    """Return a region config dict from a name or inline 'lat:MIN/MAX,lon:MIN/MAX' spec."""
+    spec = spec.strip()
+    if spec in REGIONS:
+        return dict(REGIONS[spec])
+    # Inline format: lat:49/62,lon:-9/3[,zoom:5][,label:My Region]
+    parts = {}
+    for tok in spec.split(","):
+        if ":" in tok:
+            k, v = tok.split(":", 1)
+            parts[k.strip().lower()] = v.strip()
+    if "lat" not in parts or "lon" not in parts:
+        print(f"ERROR: Unknown region {spec!r}.")
+        print(f"  Named regions: {', '.join(REGIONS)}")
+        print(f"  Custom syntax: lat:MIN/MAX,lon:MIN/MAX  (e.g. lat:49/62,lon:-9/3)")
+        sys.exit(1)
+    try:
+        lat_min, lat_max = map(float, parts["lat"].split("/"))
+        lon_min, lon_max = map(float, parts["lon"].split("/"))
+    except ValueError:
+        print(f"ERROR: Could not parse bounds in {spec!r}. Use lat:MIN/MAX,lon:MIN/MAX")
+        sys.exit(1)
+    label   = parts.get("label", f"{lat_min:.0f}–{lat_max:.0f}°N")
+    zoom    = float(parts["zoom"]) if "zoom" in parts else _auto_zoom(lat_max - lat_min, lon_max - lon_min)
+    lat_mid = (lat_min + lat_max) / 2
+    lon_mid = (lon_min + lon_max) / 2
+    return {
+        "label": label, "bounds": (lat_min, lat_max, lon_min, lon_max),
+        "large": 24, "small": 13,
+        "geo":    dict(lonaxis=dict(range=[lon_min, lon_max]),
+                       lataxis=dict(range=[lat_min, lat_max]), resolution=50),
+        "mapbox": dict(center=dict(lat=lat_mid, lon=lon_mid), zoom=zoom),
+    }
 
 
 DEFAULT_THRESHOLDS = [1, 2, 3, 4, 5]
@@ -331,13 +419,16 @@ def _chart_block(show_chart, dark):
 
 
 def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
-                 thresholds=None, palette_colors=None):
+                 thresholds=None, palette_colors=None, regions=None):
     from collections import defaultdict
 
     if thresholds is None:
         thresholds = DEFAULT_THRESHOLDS
     if palette_colors is None:
         palette_colors = _sample_palette(PALETTES["BlRd"], len(thresholds))
+    if regions is None:
+        regions = [parse_region(r) for r in DEFAULT_REGIONS]
+    r1, r2 = regions
 
     lats      = df["lat"].tolist()
     lons      = df["lon"].tolist()
@@ -345,20 +436,35 @@ def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
     dates     = df["date"].tolist()
     n         = len(df)
     locations = df["Location"].tolist()
-    uk_mask   = [_in_uk(lats[i], lons[i]) for i in range(n)]
     interesting = [_interesting(companies[i]) for i in range(n)]
 
     def hover_label(i):
         name = companies[i] or locations[i] or "Unknown"
         return f"<b>{name}</b><br>{dates[i].strftime('%d %b %Y')}"
 
+    def panel_texts(highlight_idx, region):
+        if region["bounds"] is None:
+            # Overview map: only label the newest dot to avoid clutter
+            label = companies[highlight_idx] if _interesting(companies[highlight_idx]) else ""
+            return [label if i == highlight_idx else "" for i in range(n)]
+        lat_min, lat_max, lon_min, lon_max = region["bounds"]
+        in_rgn = [lat_min <= lats[i] <= lat_max and lon_min <= lons[i] <= lon_max
+                  for i in range(n)]
+        return [
+            companies[i] if i <= highlight_idx and in_rgn[i] and _interesting(companies[i]) else ""
+            for i in range(n)
+        ]
+
     # Location key for grouping — round to ~1km precision
     loc_key = [f"{round(lats[i], 2)},{round(lons[i], 2)}" for i in range(n)]
 
     timestamps_ms_js = json.dumps([int(d.timestamp() * 1000) for d in dates])
 
-    # Pre-compute per-frame heatmap colors: each dot reflects cumulative visit count
+    # Pre-compute per-frame heatmap colors and sort order.
+    # frame_perms[idx] is a permutation of range(n) sorted by cumulative count ascending
+    # so high-count (red/hot) dots are drawn last and therefore appear on top.
     frame_colors = []
+    frame_perms  = []
     loc_count = defaultdict(int)
     for idx in range(n):
         loc_count[loc_key[idx]] += 1
@@ -366,23 +472,14 @@ def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
             _heat_color(loc_count[loc_key[i]], thresholds, palette_colors) if i <= idx else "rgba(0,0,0,0)"
             for i in range(n)
         ])
+        count_at = [loc_count[loc_key[i]] if i <= idx else 0 for i in range(n)]
+        frame_perms.append(sorted(range(n), key=lambda i: count_at[i]))
 
     def sizes(highlight_idx, large=18, small=10):
         return [
             large if i == highlight_idx
             else small if i < highlight_idx
             else 0
-            for i in range(n)
-        ]
-
-    def world_texts(highlight_idx):
-        c = companies[highlight_idx]
-        label = c if _interesting(c) else ""
-        return [label if i == highlight_idx else "" for i in range(n)]
-
-    def uk_texts(highlight_idx):
-        return [
-            companies[i] if i <= highlight_idx and uk_mask[i] and _interesting(companies[i]) else ""
             for i in range(n)
         ]
 
@@ -414,9 +511,9 @@ def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
 
         fig = make_subplots(
             rows=1, cols=2,
-            column_widths=[0.55, 0.45],
+            column_widths=[0.5, 0.5],
             specs=[[{"type": "mapbox"}, {"type": "mapbox"}]],
-            subplot_titles=["World", "United Kingdom"],
+            subplot_titles=[r1["label"], r2["label"]],
         )
 
         empty = ["rgba(0,0,0,0)"] * n
@@ -440,23 +537,14 @@ def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
         for idx in range(n):
             c = frame_colors[idx]
             sat_frames.append({
-                "w":  {"ds": sizes(idx, 18, 10), "c": c, "tx": world_texts(idx)},
-                "uk": {"ds": sizes(idx, 22, 12), "c": c, "tx": uk_texts(idx)},
+                "perm": frame_perms[idx],
+                "w":  {"ds": sizes(idx, r1["large"], r1["small"]), "c": c, "tx": panel_texts(idx, r1)},
+                "uk": {"ds": sizes(idx, r2["large"], r2["small"]), "c": c, "tx": panel_texts(idx, r2)},
             })
 
         fig.update_layout(
-            mapbox=dict(
-                style="white-bg",
-                center=dict(lat=20, lon=10),
-                zoom=0.8,
-                layers=[ESRI_LAYER],
-            ),
-            mapbox2=dict(
-                style="white-bg",
-                center=dict(lat=55, lon=-3),
-                zoom=4.5,
-                layers=[ESRI_LAYER],
-            ),
+            mapbox=dict(style="white-bg",  layers=[ESRI_LAYER], **r1["mapbox"]),
+            mapbox2=dict(style="white-bg", layers=[ESRI_LAYER], **r2["mapbox"]),
             paper_bgcolor="#0d1117",
             title=dict(
                 text="Mailing List Sign-ups",
@@ -503,12 +591,16 @@ def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
   var idx         = 0, timer = null, ms = {frame_ms};
   var playing     = false;
   var recent      = [];   // recent interesting additions for the panel
+  // Save original point order so we can apply per-frame sort permutations
+  var lat0 = gd.data[0].lat.slice();
+  var lon0 = gd.data[0].lon.slice();
+  var hov0 = gd.data[0].hovertext.slice();
 
   // ── Info panel (between the two maps) ──────────────────────────────────
   var panel = document.createElement('div');
   panel.style.cssText = [
     'position:absolute',
-    'left:55%',
+    'left:50%',
     'top:70px',                         /* align with top of map area */
     'height:490px',                     /* full map height (640 - margin.t 70 - margin.b 80) */
     'transform:translateX(-50%)',
@@ -552,24 +644,32 @@ def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
   }}
 
   // ── Apply frame data ────────────────────────────────────────────────────
+  // Permute all arrays by f.perm so high-count dots render last (on top).
   // Use restyle (trace-only, fast) and return its Promise so ticks chain off it.
   // Never touch gd.layout.sliders during animation — that fires plotly_sliderchange.
   function applyData(i) {{
-    var f = fms[i];
-    gd.data[0].text = f.w.tx;
-    gd.data[1].text = f.uk.tx;
+    var f = fms[i], pm = f.perm;
+    function pa(a) {{ return pm.map(function(j) {{ return a[j]; }}); }}
+    var oLat = pa(lat0), oLon = pa(lon0), oHov = pa(hov0);
+    gd.data[0].text = pa(f.w.tx);
+    gd.data[1].text = pa(f.uk.tx);
     updatePanel(i);
     updateChart(i);
     var p = Plotly.restyle(gd,
-      {{'marker.size':  [f.w.ds,  f.uk.ds],
-        'marker.color': [f.w.c,   f.uk.c]}},
+      {{'lat':          [oLat,        oLat],
+        'lon':          [oLon,        oLon],
+        'hovertext':    [oHov,        oHov],
+        'marker.size':  [pa(f.w.ds),  pa(f.uk.ds)],
+        'marker.color': [pa(f.w.c),   pa(f.w.c)]}},
       [0, 1]);
     return (p && p.then) ? p : Promise.resolve();
   }}
 
   // Full version used when manually moving the slider — updates slider label too.
   function applyFull(i) {{
-    var f = fms[i];
+    var f = fms[i], pm = f.perm;
+    function pa(a) {{ return pm.map(function(j) {{ return a[j]; }}); }}
+    var oLat = pa(lat0), oLon = pa(lon0), oHov = pa(hov0);
     // Rebuild recent list up to this point for the panel
     recent = [];
     for (var j = 0; j <= i; j++) {{
@@ -580,9 +680,12 @@ def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
     updateChart(i);
     gd.layout.sliders[0].active = i;
     return Plotly.restyle(gd,
-      {{'marker.size':  [f.w.ds,  f.uk.ds],
-        'marker.color': [f.w.c,   f.uk.c],
-        'text':         [f.w.tx,  f.uk.tx]}},
+      {{'lat':          [oLat,        oLat],
+        'lon':          [oLon,        oLon],
+        'hovertext':    [oHov,        oHov],
+        'marker.size':  [pa(f.w.ds),  pa(f.uk.ds)],
+        'marker.color': [pa(f.w.c),   pa(f.w.c)],
+        'text':         [pa(f.w.tx),  pa(f.uk.tx)]}},
       [0, 1]);
   }}
 
@@ -636,21 +739,23 @@ def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
 
     fig = make_subplots(
         rows=1, cols=2,
-        column_widths=[0.55, 0.45],
+        column_widths=[0.5, 0.5],
         specs=[[{"type": "geo"}, {"type": "geo"}]],
-        subplot_titles=["World", "United Kingdom"],
+        subplot_titles=[r1["label"], r2["label"]],
     )
 
     ht = [hover_label(i) for i in range(n)]
 
-    def vec_trace(sz, c, tx, geo_ref, fs=11):
+    def vec_trace(sz, c, tx, geo_ref, fs=11, lat_=None, lon_=None, ht_=None):
         return go.Scattergeo(
-            lat=lats, lon=lons, mode="markers+text",
+            lat=lat_ if lat_ is not None else lats,
+            lon=lon_ if lon_ is not None else lons,
+            mode="markers+text",
             marker=dict(size=sz, color=c, opacity=0.9,
                         line=dict(width=1.5, color="white")),
             text=tx, textposition="top center",
             textfont=dict(size=fs, color="#1e1b4b", family="Arial Bold"),
-            hovertext=ht, hoverinfo="text",
+            hovertext=ht_ if ht_ is not None else ht, hoverinfo="text",
             geo=geo_ref,
         )
 
@@ -661,21 +766,28 @@ def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
 
     plotly_frames = []
     for idx in range(n):
-        c = frame_colors[idx]
+        pm   = frame_perms[idx]
+        c    = frame_colors[idx]
+        cp   = [c[j]    for j in pm]
+        latp = [lats[j] for j in pm]
+        lonp = [lons[j] for j in pm]
+        htp  = [ht[j]   for j in pm]
+        sz_w = [sizes(idx, r1["large"], r1["small"])[j] for j in pm]
+        sz_u = [sizes(idx, r2["large"], r2["small"])[j] for j in pm]
+        tx_w = [panel_texts(idx, r1)[j] for j in pm]
+        tx_u = [panel_texts(idx, r2)[j] for j in pm]
         plotly_frames.append(go.Frame(
             name=f"frame_{idx}",
             data=[
-                vec_trace(sizes(idx, 18, 10), c, world_texts(idx), "geo",  fs=11),
-                vec_trace(sizes(idx, 22, 12), c, uk_texts(idx),    "geo2", fs=10),
+                vec_trace(sz_w, cp, tx_w, "geo",  fs=11, lat_=latp, lon_=lonp, ht_=htp),
+                vec_trace(sz_u, cp, tx_u, "geo2", fs=10, lat_=latp, lon_=lonp, ht_=htp),
             ],
         ))
     fig.frames = plotly_frames
 
     fig.update_layout(
-        geo=dict(**geo_common, scope="world", projection_type="natural earth"),
-        geo2=dict(**geo_common,
-                  lonaxis=dict(range=[-9, 3]), lataxis=dict(range=[49, 62]),
-                  resolution=50),
+        geo=dict(**geo_common,  **r1["geo"]),
+        geo2=dict(**geo_common, **r2["geo"]),
         title=dict(text="Mailing List Sign-ups",
                    font=dict(size=18, color="#333"), x=0.5, xanchor="center"),
         paper_bgcolor="white",
@@ -743,6 +855,10 @@ def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
 def parse_args():
     p = argparse.ArgumentParser(description="Animated mailing-list world map.")
     p.add_argument("--data",      default="data/mailing.tsv")
+    p.add_argument("--maps", nargs=2, default=DEFAULT_REGIONS, metavar="REGION",
+                   help=f"Two map panels. Named regions: {', '.join(REGIONS)}. "
+                        f"Custom inline: lat:MIN/MAX,lon:MIN/MAX  "
+                        f"(e.g. lat:49/62,lon:-9/3). Default: world uk")
     p.add_argument("--map-style", default="vector", choices=["vector", "satellite"],
                    help="Map background: vector (default) or satellite imagery")
     p.add_argument("--speed",     default="normal",
@@ -800,10 +916,12 @@ def main():
         sys.exit(1)
     palette_colors = _resolve_palette(opts.palette, len(thresholds))
 
+    regions = [parse_region(r) for r in opts.maps]
+    region_labels = [r["label"] for r in regions]
     print(f"Building figure (map-style={opts.map_style}, speed={opts.speed} / {frame_ms}ms, "
-          f"thresholds={thresholds}, palette={opts.palette}, chart={opts.chart}) ...")
+          f"maps={region_labels}, thresholds={thresholds}, palette={opts.palette}, chart={opts.chart}) ...")
     fig, post_script = build_figure(df, satellite=satellite, frame_ms=frame_ms,
-                                    show_chart=opts.chart,
+                                    show_chart=opts.chart, regions=regions,
                                     thresholds=thresholds, palette_colors=palette_colors)
 
     write_kwargs = {"post_script": post_script} if post_script else {}

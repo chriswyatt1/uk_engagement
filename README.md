@@ -154,6 +154,19 @@ python3 mailing_map.py --thresholds 1,5,10,25 --palette viridis
 python3 mailing_map.py --thresholds 1,3 --palette "steelblue,crimson"
 ```
 
+### Named regions — use any two from the built-in list:
+
+python3 mailing_map.py --maps world uk          # default
+python3 mailing_map.py --maps uk southeastuk
+python3 mailing_map.py --maps europe london
+python3 mailing_map.py --maps world usa
+Inline custom bounds — lat:MIN/MAX,lon:MIN/MAX (use / to separate min/max since - is ambiguous with negative longitudes). Zoom is auto-calculated from the lat/lon span, or you can override with ,zoom:7:
+
+
+python3 mailing_map.py --maps uk "lat:50.5/52.5,lon:-1.5/2"
+python3 mailing_map.py --maps world "lat:51/52,lon:-0.5/0.3,zoom:9,label:London"
+
+
 ### Heatmap colours (`--thresholds` and `--palette`)
 
 Each dot changes colour as more subscribers join from the same location. `--thresholds` sets the sign-up counts at which the colour steps up, and `--palette` controls the colour range.
