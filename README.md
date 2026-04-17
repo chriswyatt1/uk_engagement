@@ -184,5 +184,5 @@ The palette is always sampled to match however many thresholds you give, so ever
 
 ```bash
 python3 mailing_map.py --thresholds 1,5,20 --palette "royalblue,orange,crimson"
-python3 mailing_map.py --thresholds 1,3,5  --palette "#4ade80,#f59e0b,#ef4444"
+python3 mailing_map.py --thresholds 1,3,5  --palette "#48ba39, #e1f811, #f47d15, #e80808"
 ```
