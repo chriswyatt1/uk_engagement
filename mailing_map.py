@@ -448,8 +448,6 @@ def build_figure(df, satellite=False, frame_ms=800):
   // Never touch gd.layout.sliders during animation — that fires plotly_sliderchange.
   function applyData(i) {{
     var f = fms[i];
-    // Mutate text directly — restyle's own redraw picks it up without needing
-    // text in the restyle call (which can cause mapbox Promise rejections).
     gd.data[0].text = f.w.tx;
     gd.data[1].text = f.uk.tx;
     updatePanel(i);
