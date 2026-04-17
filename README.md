@@ -92,3 +92,58 @@ python3 uk_engagement_map.py --help
 |------|-------------|
 | `output/uk_engagement_map.html` | Interactive map — open in any browser |
 | `output/uk_engagement.mp4` | Video export (with `--video` flag) |
+
+---
+
+## Mailing list map
+
+`mailing_map.py` reads `data/mailing.tsv` and produces an animated **world map** showing mailing-list subscribers appearing over time. Each subscriber pops up with their organisation name visible as they join.
+
+### Running it
+
+```bash
+python3 mailing_map.py
+```
+
+Opens `output/mailing_map.html` in your browser. Hit **Play** or drag the slider to step through subscribers chronologically.
+
+### Updating the data
+
+Export your mailing list as a TSV with these columns:
+
+```
+Subscribed        Location         Company
+10/04/2026 15:12  United Kingdom   University of Oxford - IDDO
+...
+```
+
+- **Subscribed** — date/time the subscriber joined (day/month/year format)
+- **Location** — country name, used as a geocoding fallback
+- **Company** — organisation name, used to look up coordinates
+
+Geocoding results are cached in `data/geocache.json` so re-running is fast. To fix a wrongly placed dot, edit the JSON directly — add or update the entry with the correct `[lat, lon]`.
+
+### Short or ambiguous names
+
+Names like `KCL` or `Dur` won't geocode well on their own. Add them to the `GEOCODE_OVERRIDES` dict near the top of `mailing_map.py`:
+
+```python
+GEOCODE_OVERRIDES = {
+    "KCL":  "King's College London, United Kingdom",
+    "Dur":  "University of Durham, United Kingdom",
+    ...
+}
+```
+
+### Options
+
+| Flag | Options | Default | Description |
+|------|---------|---------|-------------|
+| `--data` | file path | `data/mailing.tsv` | Input TSV file |
+| `--map-style` | `vector`, `satellite` | `vector` | Map background: vector or satellite imagery |
+| `--speed` | `slow`, `normal`, `fast`, `instant` | `normal` | How fast subscribers are added (800 / 300 / 80 ms) |
+
+```bash
+python3 mailing_map.py --map-style satellite --speed fast
+python3 mailing_map.py --speed instant   # blaze through all subscribers
+```

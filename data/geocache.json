@@ -22,5 +22,866 @@
   "Belfast": [
     54.5975805,
     -5.9277097
+  ],
+  "University of York": [
+    53.9453903,
+    -1.0314593
+  ],
+  "University of Manchester": [
+    53.4660226,
+    -2.2330858
+  ],
+  "University of Nottingham": [
+    52.9397,
+    -1.1852
+  ],
+  "King's College London, United Kingdom": [
+    51.5030855,
+    -0.0900021
+  ],
+  "University of Durham, United Kingdom": [
+    54.7887211,
+    -1.5931807
+  ],
+  "Australian Research Data Commons, Melbourne, Australia": [
+    -37.801103,
+    144.9632629
+  ],
+  "University of Portsmouth": [
+    50.795245,
+    -1.0935529
+  ],
+  "University of Sheffield": [
+    53.3729622,
+    -1.5059315
+  ],
+  "Westminster, London, United Kingdom": [
+    51.4994,
+    -0.1248
+  ],
+  "Croydon, London, United Kingdom": [
+    51.3762,
+    -0.0982
+  ],
+  "MRC Harwell, Oxfordshire, United Kingdom": [
+    51.5762,
+    -1.3065
+  ],
+  "University of Oxford, United Kingdom": [
+    51.7548,
+    -1.2544
+  ],
+  "Chinese Academy of Sciences, Beijing, China": [
+    39.9826,
+    116.3699
+  ],
+  "": [
+    54.7023545,
+    -3.2765753
+  ],
+  "UCL": [
+    51.5242031,
+    -0.1330007
+  ],
+  "University of Exeter": [
+    50.1701604,
+    -5.1241802
+  ],
+  "University of Greenwich": [
+    51.4825423,
+    -0.0066531
+  ],
+  "Jisc": [
+    51.4547,
+    -2.5985
+  ],
+  "TSL": [
+    52.622067,
+    1.2231472
+  ],
+  "AstraZeneca": [
+    52.1904423,
+    0.1343133
+  ],
+  "DHSC": [
+    51.4979606,
+    -0.1330758
+  ],
+  "University of East Anglia": [
+    52.6210623,
+    1.2356187
+  ],
+  "University of Warwick": [
+    52.3813073,
+    -1.5639569
+  ],
+  "Cambridge University Hospitals": [
+    52.1736913,
+    0.1379141
+  ],
+  "STFC Hartree centre": [
+    53.3459,
+    -2.6385
+  ],
+  "Cambridge University Health Partners": [
+    52.189,
+    0.1213
+  ],
+  "Earlham Institute": [
+    52.6217619,
+    1.2190376
+  ],
+  "Galaxy Australia": [
+    -24.8678847,
+    152.3411864
+  ],
+  "University of Mamchester": [
+    53.466,
+    -2.2331
+  ],
+  "University of Leeds": [
+    53.8057925,
+    -1.555111
+  ],
+  "University of Birmingham": [
+    52.4508,
+    -1.9301
+  ],
+  "University of Cambridge": [
+    52.1890916,
+    0.1212977
+  ],
+  "New Zealand eScience Infrastructure": [
+    -41.2865,
+    174.7762
+  ],
+  "ReSA": [
+    45.6759953,
+    15.4193906
+  ],
+  "Forschungszentrum J\u00c3\u00bclich GmbH": null,
+  "Digital Research Alliance of Canada": [
+    61.0666922,
+    -107.991707
+  ],
+  "EI": [
+    52.6217619,
+    1.2190376
+  ],
+  "University College London (UCL)": [
+    51.5242031,
+    -0.1330007
+  ],
+  "University of Dundee": [
+    56.4579676,
+    -2.9821483
+  ],
+  "Opalescent": [
+    44.0199237,
+    -74.0471591
+  ],
+  "ukri": [
+    51.5669764,
+    -1.7841586
+  ],
+  "Australian Research Data Commons": [
+    -37.801103,
+    144.9632629
+  ],
+  "University of Bristol": [
+    51.4905582,
+    -2.6304825
+  ],
+  "STFC": [
+    51.5762,
+    -1.3065
+  ],
+  "University of Bradford": [
+    53.7916522,
+    -1.7661184
+  ],
+  "University of Edinburgh": [
+    55.9440765,
+    -3.1883736
+  ],
+  "London School of Hygiene & Tropical Medicine": [
+    51.5206,
+    -0.1316
+  ],
+  "OLS": [
+    54.7933719,
+    -6.397759
+  ],
+  "University of Leicester": [
+    52.6175241,
+    -1.1377672
+  ],
+  "EMBL-EBI": [
+    52.0779087,
+    0.1871187
+  ],
+  "Quantum": [
+    53.4792654,
+    -2.2246564
+  ],
+  "TitanDx": [
+    54.7023545,
+    -3.2765753
+  ],
+  "Research Space": [
+    37.2093895,
+    -80.4183098
+  ],
+  "Cardiff University": [
+    51.4887426,
+    -3.1795999
+  ],
+  "Curlew Research": [
+    54.7023545,
+    -3.2765753
+  ],
+  "Esox Biologics": [
+    54.7023545,
+    -3.2765753
+  ],
+  "MHRA": [
+    51.4926968,
+    -0.1471403
+  ],
+  "UKRI": [
+    51.5669764,
+    -1.7841586
+  ],
+  "BBSRC": [
+    51.5583,
+    -1.7836
+  ],
+  "NBI Partnership": [
+    52.6218,
+    1.219
+  ],
+  "NERC": [
+    53.382071,
+    -1.4882516
+  ],
+  "John Innes Centre": [
+    52.6218,
+    1.219
+  ],
+  "University Of Cambridge": [
+    52.1890916,
+    0.1212977
+  ],
+  "UEA": [
+    52.621157,
+    1.2410137
+  ],
+  "Quadram Institute Bioscience": [
+    52.620889,
+    1.2187441
+  ],
+  "NBIP": [
+    52.6218,
+    1.219
+  ],
+  "EI/Elixir-UK": [
+    52.6218,
+    1.219
+  ],
+  "AWS": [
+    51.8702637,
+    0.1499501
+  ],
+  "University of Liverpool": [
+    53.4072429,
+    -2.9658337
+  ],
+  "University of Oxford": [
+    51.7548,
+    -1.2544
+  ],
+  "Bristol University": [
+    51.4905582,
+    -2.6304825
+  ],
+  "Health-RI": [
+    51.5714349,
+    -0.1250644
+  ],
+  "The Institute of Cancer Research, London": [
+    51.4795,
+    -0.1862
+  ],
+  "Exeter University Sequencing Facility": [
+    50.7184,
+    -3.5339
+  ],
+  "uni of exeter": [
+    50.1701604,
+    -5.1241802
+  ],
+  "University Of Exeter": [
+    50.1701604,
+    -5.1241802
+  ],
+  "Milner Institute": [
+    53.3537056,
+    -2.6352322
+  ],
+  "Exeter University": [
+    50.1701604,
+    -5.1241802
+  ],
+  "UKRI - Medical Research Council": [
+    51.567,
+    -1.7842
+  ],
+  "King's College London - Dean for Research Infrastructure - conversation about how we can collaborate at an institute level": [
+    51.5031,
+    -0.09
+  ],
+  "Copperfern Consulting": [
+    54.7023545,
+    -3.2765753
+  ],
+  "UK Dementia Research Institute": [
+    51.5236,
+    -0.1365
+  ],
+  "University of Regensburg, Germany": [
+    49.0030835,
+    12.0962683
+  ],
+  "FIMM": [
+    60.1641,
+    24.952
+  ],
+  "MBZUAI": [
+    24.0002488,
+    53.9994829
+  ],
+  "ASBCB": [
+    54.7023545,
+    -3.2765753
+  ],
+  "Warsaw University of Technology": [
+    52.2216394,
+    21.007377
+  ],
+  "University of Salerno": [
+    40.675,
+    14.7681
+  ],
+  "Iitb": [
+    19.1326186,
+    72.9149702
+  ],
+  "IIT M": [
+    12.9941561,
+    80.2366826
+  ],
+  "IIT madras": [
+    12.9914769,
+    80.2336786
+  ],
+  "DKFZ": [
+    49.4147316,
+    8.6732292
+  ],
+  "Imdea": [
+    40.3397971,
+    -3.8810025
+  ],
+  "Unsw": [
+    -33.9062434,
+    151.2346568
+  ],
+  "UNSW": [
+    -33.9175994,
+    151.2312369
+  ],
+  "Southampton": [
+    50.9025349,
+    -1.404189
+  ],
+  "University of Delhi": [
+    28.6881517,
+    77.2148081
+  ],
+  "University of Padova": [
+    45.4066496,
+    11.8774407
+  ],
+  "Parse Biosciences": [
+    54.7023545,
+    -3.2765753
+  ],
+  "Hochschule Campus Wien": [
+    48.1585403,
+    16.3809471
+  ],
+  "Genomics of gene expression lab": [
+    54.7023545,
+    -3.2765753
+  ],
+  "Xjtu": [
+    34.2584,
+    108.9524
+  ],
+  "Mpi": [
+    51.8977671,
+    -2.0987632
+  ],
+  "University of Bergen": [
+    60.3809342,
+    5.3313021
+  ],
+  "Thsti": [
+    28.4216,
+    77.043
+  ],
+  "Astra Zeneca": [
+    51.8663423,
+    -0.4064848
+  ],
+  "Area science park": [
+    45.6572777,
+    13.8289844
+  ],
+  "Eth": [
+    47.3769,
+    8.548
+  ],
+  "NIH": [
+    39.0000143,
+    -77.1040039
+  ],
+  "CERI, Stellenbosch University": [
+    -33.9326,
+    18.8644
+  ],
+  "INCA": [
+    51.4657925,
+    -0.1139753
+  ],
+  "Ufscar": [
+    -21.9834422,
+    -47.8806644
+  ],
+  "IBM": [
+    55.9293834,
+    -4.8272699
+  ],
+  "Almac": [
+    54.4449,
+    -6.3607
+  ],
+  "Queens University Belfast": [
+    54.5839495,
+    -5.9328105
+  ],
+  "Statens Serum Institute": [
+    55.6802,
+    12.531
+  ],
+  "Qmul": [
+    51.5247403,
+    -0.0393136
+  ],
+  "University clinics T\u00c3\u00bcbingen": [
+    48.521,
+    9.0557
+  ],
+  "Technical University of Munich": [
+    48.2654976,
+    11.6692249
+  ],
+  "Curevac": [
+    48.5400294,
+    9.0560158
+  ],
+  "The Hebrew university of jerusalem": [
+    31.7784,
+    35.2358
+  ],
+  "Saarland University": [
+    49.2542421,
+    7.0415117
+  ],
+  "Ebi": [
+    51.499399,
+    -0.127391
+  ],
+  "Hpi": [
+    51.0670966,
+    -1.7939616
+  ],
+  "The Alan Turing Institute": [
+    51.5302275,
+    -0.1270026
+  ],
+  "UoL": [
+    53.4052245,
+    -2.9664117
+  ],
+  "rwth aachen": [
+    50.7791732,
+    6.0689207
+  ],
+  "University of Tuebingen": [
+    48.5340595,
+    9.0712444
+  ],
+  "NIAID": [
+    39.7837304,
+    -100.445882
+  ],
+  "University of Southampton": [
+    50.9617568,
+    -1.4239975
+  ],
+  "University of Hamburg": [
+    53.564106,
+    9.9949809
+  ],
+  "Universidade Federal Rural da Amazonia": [
+    -1.4561196,
+    -48.437936
+  ],
+  "LMU Munich": [
+    48.149703,
+    11.5805338
+  ],
+  "Open Targets Embl-EBI": [
+    54.7023545,
+    -3.2765753
+  ],
+  "Astex Pharmaceuticals": [
+    52.2365683,
+    0.138387
+  ],
+  "Beiersdorf AG": [
+    53.5796742,
+    9.9603246
+  ],
+  "Ipt": [
+    41.2465963,
+    -76.9248762
+  ],
+  "CNAG, spain": [
+    41.3985,
+    2.193
+  ],
+  "University of Galway": [
+    53.2936337,
+    -9.0750599
+  ],
+  "Landmark university Nigeria": [
+    8.1212438,
+    5.0773495
+  ],
+  "HIPS": [
+    53.9725853,
+    -1.0870619
+  ],
+  "University of Sherbrooke": [
+    45.5068861,
+    -73.5787118
+  ],
+  "University of pava": [
+    45.1847,
+    9.1582
+  ],
+  "UNAM": [
+    19.321597,
+    -99.1849259
+  ],
+  "University of Warsaw": [
+    52.2216394,
+    21.007377
+  ],
+  "Universit\u00c3\u00a9 de Sherbrooke": [
+    45.3767733,
+    -71.940274
+  ],
+  "NCI": [
+    42.0182711,
+    -72.4942092
+  ],
+  "HPI": [
+    51.0670966,
+    -1.7939616
+  ],
+  "University of Bologna": [
+    44.4982886,
+    11.354457
+  ],
+  "Dkfz": [
+    49.4147316,
+    8.6732292
+  ],
+  "UCL Berkeley": [
+    37.8724,
+    -122.2595
+  ],
+  "Kaust": [
+    22.3223754,
+    39.1173835
+  ],
+  "Landmark university": [
+    8.1212438,
+    5.0773495
+  ],
+  "Koc university": [
+    41.2060623,
+    29.0738014
+  ],
+  "ASTRAZENECA": [
+    52.1904423,
+    0.1343133
+  ],
+  "Butantan institute": [
+    -23.5699843,
+    -46.7044206
+  ],
+  "INRAE": [
+    43.5272308,
+    1.5010601
+  ],
+  "Hips": [
+    38.9003731,
+    -76.9933534
+  ],
+  "Atlantic Cancer Research Institute": [
+    46.0906,
+    -64.7844
+  ],
+  "University of KwaZulu-Natal, South Africa": [
+    -29.8664426,
+    30.9813099
+  ],
+  "South Korea": [
+    51.4980913,
+    -0.1361935
+  ],
+  "Sastra Deemed to be University": [
+    54.7023545,
+    -3.2765753
+  ],
+  "SASTRA Deemed to be University": [
+    22.3511148,
+    78.6677428
+  ],
+  "Univ of Dallas": [
+    32.8487635,
+    -96.9225676
+  ],
+  "Sanger": [
+    51.365964,
+    -0.2998917
+  ],
+  "Lilly": [
+    54.2713228,
+    -2.3644305
+  ],
+  "I2SysBio": [
+    39.5168437,
+    -0.4231593
+  ],
+  "The institute of mathematical sciences": [
+    12.9940631,
+    80.2473355
+  ],
+  "SASTRA DEEMED UNIVERSITY": [
+    10.9637666,
+    79.3862817
+  ],
+  "RESTORE": [
+    51.5196402,
+    0.0965339
+  ],
+  "Uwaterloo": [
+    43.4723,
+    -80.5449
+  ],
+  "University of Duisburg-ESSEN": [
+    51.4287426,
+    6.7869646
+  ],
+  "Universidad de Chile": [
+    -33.443867,
+    -70.6506654
+  ],
+  "University of Glasgow": [
+    55.871666,
+    -4.2778997
+  ],
+  "The Institute of Mathematical Sciences": [
+    12.9940631,
+    80.2473355
+  ],
+  "University of liverpool": [
+    53.4072429,
+    -2.9658337
+  ],
+  "CSIC": [
+    40.4407145,
+    -3.6874014
+  ],
+  "Sygenta": [
+    47.5596,
+    7.5886
+  ],
+  "Rothamsted Research": [
+    51.8096433,
+    -0.3696315
+  ],
+  "Australian BioCommons": [
+    -24.7761086,
+    134.755
+  ],
+  "Digital Research Academy": [
+    54.7023545,
+    -3.2765753
+  ],
+  "Molecule to Medicine": [
+    54.7023545,
+    -3.2765753
+  ],
+  "Quotient Therapeutics": [
+    54.7023545,
+    -3.2765753
+  ],
+  "Sano Genetics": [
+    54.7023545,
+    -3.2765753
+  ],
+  "UK Vegetable Genebank, University of Warwick": [
+    52.3813,
+    -1.564
+  ],
+  "Rosalind Franklin Institute": [
+    51.573347,
+    -1.314994
+  ],
+  "Cancer Research UK Scotland Institute": [
+    55.8671,
+    -4.2764
+  ],
+  "Cancer Research UK, Manchester, U.K.": [
+    53.4149139,
+    -2.2324221
+  ],
+  "The University of Manchester": [
+    53.5735316,
+    -2.4371736
+  ],
+  "Imperial College London": [
+    51.4989595,
+    -0.1756407
+  ],
+  "The University of York": [
+    53.9622938,
+    -1.0868143
+  ],
+  "MRC Harwell": [
+    51.5754095,
+    -1.321615
+  ],
+  "Cancer Research UK Manchester Institute": [
+    53.4424,
+    -2.2174
+  ],
+  "Francis Crick Institute": [
+    51.5314,
+    -0.1275
+  ],
+  "Hinxton, Cambridge, CB10 1SA (Wellcome Genome Campus)": [
+    52.0796,
+    0.1848
+  ],
+  "British School at Rome": [
+    41.9184391,
+    12.4809461
+  ],
+  "Manchester Metropolitan University": [
+    53.4694788,
+    -2.2379823
+  ],
+  "Royal Botanic Garden Edinburgh": [
+    55.9652854,
+    -3.2088592
+  ],
+  "UK Centre for Ecology & Hydrology": [
+    54.0132671,
+    -2.7831128
+  ],
+  "The James Hutton Institute": [
+    57.1334198,
+    -2.158803
+  ],
+  "Home Office": [
+    51.4960092,
+    -0.1298318
+  ],
+  "The Pirbright Institute": [
+    51.2789208,
+    -0.6343918
+  ],
+  "King's College London": [
+    51.5031,
+    -0.09
+  ],
+  "United Kingdom": [
+    54.7024,
+    -3.2766
+  ],
+  "Ireland": [
+    53.1424,
+    -7.6921
+  ],
+  "United States": [
+    39.7837,
+    -100.4458
+  ],
+  "Greece": [
+    39.0742,
+    21.8243
+  ],
+  "France": [
+    46.2276,
+    2.2137
+  ],
+  "Canada": [
+    56.1304,
+    -106.3468
+  ],
+  "Spain": [
+    40.4637,
+    -3.7492
+  ],
+  "Netherlands": [
+    52.1326,
+    5.2913
+  ],
+  "Uganda": [
+    1.3733,
+    32.2903
+  ],
+  "Turkey": [
+    38.9637,
+    35.2433
+  ],
+  "Germany": [
+    51.1657,
+    10.4515
+  ],
+  "Egypt": [
+    26.8206,
+    30.8025
+  ],
+  "Australia": [
+    -25.2744,
+    133.7751
   ]
 }

@@ -1,0 +1,661 @@
+#!/usr/bin/env python3
+"""
+mailing_map.py
+--------------
+Reads data/mailing.tsv and produces an animated world map showing
+mailing-list subscribers appearing over time.  Each new subscriber
+pops up with their full organisation name visible on the map.
+
+Usage:
+    python3 mailing_map.py
+    python3 mailing_map.py --data data/mailing.tsv
+    python3 mailing_map.py --map-style satellite
+
+Requirements:
+    pip install pandas plotly geopy
+"""
+
+import argparse
+import json
+import os
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+
+GEOCACHE_PATH = "data/geocache.json"
+OUTPUT_HTML   = "output/mailing_map.html"
+
+# Manual overrides for short/ambiguous names
+GEOCODE_OVERRIDES = {
+    "Dur":                                "University of Durham, United Kingdom",
+    "KCL":                                "King's College London, United Kingdom",
+    "ARDC":                               "Australian Research Data Commons, Melbourne, Australia",
+    "University of Oxford - IDDO":        "University of Oxford, United Kingdom",
+    "Mary Lyon Centre at MRC Harwell":    "MRC Harwell, Oxfordshire, United Kingdom",
+    "Croydon Health Services NHS Trust":  "Croydon, London, United Kingdom",
+    "National Police Chiefs' Council":    "Westminster, London, United Kingdom",
+    "archives of chinese academy of sciences": "Chinese Academy of Sciences, Beijing, China",
+}
+
+COUNTRY_CODE_MAP = {
+    "United Kingdom": "gb",
+    "Australia":      "au",
+    "Japan":          "jp",
+    "United States":  "us",
+}
+
+
+# ─────────────────────────────────────────────
+#  GEOCODING
+# ─────────────────────────────────────────────
+
+def load_geocache():
+    p = Path(GEOCACHE_PATH)
+    if p.exists():
+        with open(p) as f:
+            return json.load(f)
+    return {}
+
+
+def save_geocache(cache):
+    Path(GEOCACHE_PATH).parent.mkdir(parents=True, exist_ok=True)
+    with open(GEOCACHE_PATH, "w") as f:
+        json.dump(cache, f, indent=2)
+
+
+def geocode_company(company, country, cache, geolocator):
+    """Return (lat, lon) for a company, using cache then Nominatim."""
+    query = GEOCODE_OVERRIDES.get(company, company)
+    cc    = COUNTRY_CODE_MAP.get(country)
+
+    for key in [query, f"{query}, {country}"]:
+        if key in cache:
+            entry = cache[key]
+            if entry:
+                return tuple(entry)
+            return None
+
+    print(f"  Geocoding {query!r} ...", end=" ", flush=True)
+
+    # Small delay to respect Nominatim rate limit
+    time.sleep(1.1)
+
+    try:
+        from geopy.exc import GeocoderTimedOut
+        geo = geolocator.geocode(query, country_codes=cc, timeout=10)
+        if not geo and cc:
+            geo = geolocator.geocode(query, timeout=10)
+
+        if geo:
+            coords = [geo.latitude, geo.longitude]
+            print(f"({geo.latitude:.4f}, {geo.longitude:.4f})")
+        else:
+            # Last resort: geocode just the country
+            geo = geolocator.geocode(country, timeout=10)
+            if geo:
+                coords = [geo.latitude, geo.longitude]
+                print(f"country fallback ({geo.latitude:.4f}, {geo.longitude:.4f})")
+            else:
+                coords = None
+                print("NOT FOUND")
+
+        cache[query] = coords
+        save_geocache(cache)
+        return tuple(coords) if coords else None
+
+    except Exception as e:
+        print(f"ERROR: {e}")
+        cache[query] = None
+        return None
+
+
+def geocode_all(df):
+    try:
+        from geopy.geocoders import Nominatim
+    except ImportError:
+        print("ERROR: geopy is required.  Install with:  pip install geopy")
+        sys.exit(1)
+
+    cache      = load_geocache()
+    geolocator = Nominatim(user_agent="mailing_map/1.0")
+    results    = []
+    first_call = True
+    uncached   = []
+
+    # First pass: find what needs geocoding so we can warn upfront
+    for _, row in df.iterrows():
+        company = str(row.get("Company", "")).strip()
+        country = str(row.get("Location", "")).strip()
+        query   = GEOCODE_OVERRIDES.get(company, company) if company else country
+        if query and query not in cache and f"{query}, {country}" not in cache:
+            uncached.append(query)
+
+    if uncached:
+        unique_uncached = list(dict.fromkeys(uncached))
+        print(f"  {len(unique_uncached)} new entr{'y' if len(unique_uncached)==1 else 'ies'} to geocode "
+              f"(~{len(unique_uncached)} sec due to rate limit): "
+              + ", ".join(repr(u) for u in unique_uncached))
+    else:
+        print("  All entries found in geocache — no API calls needed.")
+
+    for _, row in df.iterrows():
+        company = str(row.get("Company", "")).strip()
+        country = str(row.get("Location", "")).strip()
+        query   = GEOCODE_OVERRIDES.get(company, company) if company else country
+        key     = query
+
+        if key in cache:
+            entry = cache[key]
+            results.append(tuple(entry) if entry else None)
+            continue
+        fallback_key = f"{query}, {country}"
+        if fallback_key in cache:
+            entry = cache[fallback_key]
+            results.append(tuple(entry) if entry else None)
+            continue
+
+        if not first_call:
+            time.sleep(1.1)
+        first_call = False
+
+        coords = geocode_company(company, country, cache, geolocator)
+        results.append(coords)
+
+    return results
+
+
+# ─────────────────────────────────────────────
+#  LOAD DATA
+# ─────────────────────────────────────────────
+
+def load_mailing(path):
+    df = pd.read_csv(path, sep="\t", dtype=str)
+    df.columns = [c.strip() for c in df.columns]
+
+    if "Subscribed" not in df.columns:
+        raise ValueError(f"Expected 'Subscribed' column, got: {list(df.columns)}")
+
+    df["date"]     = pd.to_datetime(df["Subscribed"], dayfirst=True, errors="coerce")
+    df["Company"]  = df["Company"].fillna("").str.strip()
+    df["Location"] = df["Location"].fillna("").str.strip()
+
+    # Drop rows with no date or no company/location to geocode against
+    df = df[df["date"].notna() & ((df["Company"].str.len() > 0) | (df["Location"].str.len() > 0))]
+    df = df.sort_values("date").reset_index(drop=True)
+    return df
+
+
+SPEED_MS = {"slow": 1500, "normal": 800, "fast": 300, "instant": 80}
+
+ESRI_LAYER = {
+    "below": "traces",
+    "sourcetype": "raster",
+    "source": [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/"
+        "World_Imagery/MapServer/tile/{z}/{y}/{x}"
+    ],
+    "sourceattribution": "Imagery \u00a9 Esri",
+}
+
+
+# ─────────────────────────────────────────────
+#  BUILD FIGURE
+# ─────────────────────────────────────────────
+
+# Country-name-only entries — no institution info, skip prominent labels
+BORING_LABELS = {
+    "", "United Kingdom", "United States", "Australia", "Japan",
+    "Ireland", "Greece", "France", "Canada", "Spain",
+    "Netherlands", "Uganda", "Turkey", "Germany", "Egypt",
+    "China", "India", "Brazil", "South Africa", "Italy",
+    "Sweden", "Norway", "Denmark", "Finland", "Belgium",
+    "Switzerland", "Austria", "Poland", "Portugal", "Israel",
+    "New Zealand", "South Korea",
+}
+
+
+def _in_uk(lat, lon):
+    return 49 <= lat <= 62 and -9 <= lon <= 3
+
+
+def _interesting(company):
+    return bool(company) and company not in BORING_LABELS
+
+
+HEAT_PALETTE = ["#3b82f6", "#06b6d4", "#4ade80", "#f59e0b", "#ef4444"]
+
+
+def _heat_color(count):
+    return HEAT_PALETTE[min(count - 1, len(HEAT_PALETTE) - 1)]
+
+
+def build_figure(df, satellite=False, frame_ms=800):
+    from collections import defaultdict
+
+    lats      = df["lat"].tolist()
+    lons      = df["lon"].tolist()
+    companies = df["Company"].tolist()
+    dates     = df["date"].tolist()
+    n         = len(df)
+    uk_mask   = [_in_uk(lats[i], lons[i]) for i in range(n)]
+    interesting = [_interesting(companies[i]) for i in range(n)]
+
+    # Location key for grouping — round to ~1km precision
+    loc_key = [f"{round(lats[i], 2)},{round(lons[i], 2)}" for i in range(n)]
+
+    # Pre-compute per-frame heatmap colors: each dot reflects cumulative visit count
+    frame_colors = []
+    loc_count = defaultdict(int)
+    for idx in range(n):
+        loc_count[loc_key[idx]] += 1
+        frame_colors.append([
+            _heat_color(loc_count[loc_key[i]]) if i <= idx else "rgba(0,0,0,0)"
+            for i in range(n)
+        ])
+
+    def sizes(highlight_idx, large=18, small=10):
+        return [
+            large if i == highlight_idx
+            else small if i < highlight_idx
+            else 0
+            for i in range(n)
+        ]
+
+    def world_texts(highlight_idx):
+        c = companies[highlight_idx]
+        label = c if _interesting(c) else ""
+        return [label if i == highlight_idx else "" for i in range(n)]
+
+    def uk_texts(highlight_idx):
+        return [
+            companies[i] if i <= highlight_idx and uk_mask[i] and _interesting(companies[i]) else ""
+            for i in range(n)
+        ]
+
+    slider_steps = [
+        dict(
+            label=dates[idx].strftime("%d %b %Y"),
+            method="animate" if not satellite else "skip",
+            args=[[f"frame_{idx}"], dict(
+                mode="immediate",
+                frame=dict(duration=0, redraw=True),
+                transition=dict(duration=0),
+            )],
+        )
+        for idx in range(n)
+    ]
+
+    legend_html = (
+        ''.join(f'<span style="color:{c}">●</span> {t}  '
+                for c, t in zip(HEAT_PALETTE, ["1", "2", "3", "4", "5+"])) +
+        '&nbsp;&nbsp;sign-ups at location'
+    )
+
+    # ── SATELLITE ────────────────────────────────────────────────────────────
+    if satellite:
+        import warnings
+        warnings.filterwarnings("ignore", message=".*scattermapbox.*",
+                                category=DeprecationWarning)
+
+        fig = make_subplots(
+            rows=1, cols=2,
+            column_widths=[0.55, 0.45],
+            specs=[[{"type": "mapbox"}, {"type": "mapbox"}]],
+            subplot_titles=["World", "United Kingdom"],
+        )
+
+        empty = ["rgba(0,0,0,0)"] * n
+
+        def sat_trace(sz, c, tx, subplot):
+            return go.Scattermapbox(
+                lat=lats, lon=lons, mode="markers+text",
+                marker=dict(size=sz, color=c, opacity=0.9),
+                text=tx, textposition="top right",
+                textfont=dict(size=11, color="white", family="Arial Black"),
+                hovertext=[
+                    f"<b>{companies[i]}</b><br>{dates[i].strftime('%d %b %Y')}"
+                    for i in range(n)
+                ],
+                hoverinfo="text",
+                subplot=subplot,
+            )
+
+        fig.add_trace(sat_trace([0]*n, empty, [""]*n, "mapbox"),  row=1, col=1)
+        fig.add_trace(sat_trace([0]*n, empty, [""]*n, "mapbox2"), row=1, col=2)
+
+        # Collect raw frame data for JS driver
+        sat_frames = []
+        for idx in range(n):
+            c = frame_colors[idx]
+            sat_frames.append({
+                "w":  {"ds": sizes(idx, 18, 10), "c": c, "tx": world_texts(idx)},
+                "uk": {"ds": sizes(idx, 22, 12), "c": c, "tx": uk_texts(idx)},
+            })
+
+        fig.update_layout(
+            mapbox=dict(
+                style="white-bg",
+                center=dict(lat=20, lon=10),
+                zoom=0.8,
+                layers=[ESRI_LAYER],
+            ),
+            mapbox2=dict(
+                style="white-bg",
+                center=dict(lat=55, lon=-3),
+                zoom=4.5,
+                layers=[ESRI_LAYER],
+            ),
+            paper_bgcolor="#0d1117",
+            title=dict(
+                text="Mailing List Sign-ups",
+                font=dict(size=18, color="white"),
+                x=0.5, xanchor="center",
+            ),
+            updatemenus=[dict(
+                type="buttons", showactive=False,
+                x=0.01, y=0.99, xanchor="left", yanchor="top",
+                buttons=[
+                    dict(label="Play",  method="skip"),
+                    dict(label="Pause", method="skip"),
+                ],
+            )],
+            sliders=[dict(
+                active=0, steps=slider_steps,
+                x=0.05, len=0.9, y=0, yanchor="top",
+                currentvalue=dict(prefix="Joined: ", font=dict(size=12, color="white")),
+                transition=dict(duration=0),
+            )],
+            showlegend=False,
+            height=640,
+            margin=dict(t=70, b=80, l=10, r=10),
+            annotations=[dict(
+                x=0.5, y=-0.08, xref="paper", yref="paper",
+                text=legend_html, showarrow=False,
+                font=dict(size=12, color="white"), align="center",
+            )],
+        )
+
+        interesting_js = json.dumps(interesting)
+        dates_js       = json.dumps([d.strftime("%d %b %Y") for d in dates])
+        frames_json    = json.dumps(sat_frames)
+        post_script = f"""\
+(function() {{
+  var gd          = document.querySelector('.plotly-graph-div');
+  var fms         = {frames_json};
+  var interesting = {interesting_js};
+  var dateStrs    = {dates_js};
+  var companies   = {json.dumps(companies)};
+  var n           = fms.length;
+  var idx         = 0, timer = null, ms = {frame_ms};
+  var playing     = false;
+  var recent      = [];   // recent interesting additions for the panel
+
+  // ── Info panel (between the two maps) ──────────────────────────────────
+  var panel = document.createElement('div');
+  panel.style.cssText = [
+    'position:absolute',
+    'left:55%',
+    'top:70px',                         /* align with top of map area */
+    'height:490px',                     /* full map height (640 - margin.t 70 - margin.b 80) */
+    'transform:translateX(-50%)',
+    'background:rgba(10,10,30,0.82)',
+    'color:white',
+    'padding:10px 14px',
+    'border-radius:8px',
+    'width:240px',
+    'font-size:11px',
+    'font-family:Arial,sans-serif',
+    'pointer-events:none',
+    'z-index:100',
+    'line-height:1.4',
+    'overflow:hidden',
+    'box-sizing:border-box',
+  ].join(';');
+  // Needs a relative-positioned parent so absolute positioning works
+  var wrap = gd.closest('.js-plotly-plot') || gd.parentElement;
+  wrap.style.position = 'relative';
+  wrap.appendChild(panel);
+
+  function updatePanel(i) {{
+    if (interesting[i]) {{
+      recent.unshift({{name: companies[i], date: dateStrs[i]}});
+      if (recent.length > 14) recent.pop();
+    }}
+    if (recent.length === 0) {{ panel.innerHTML = ''; return; }}
+    var html = '<div style="font-size:9px;opacity:0.55;margin-bottom:8px;letter-spacing:.08em;text-transform:uppercase">Recent sign-ups</div>';
+    recent.forEach(function(r, ri) {{
+      var op = Math.max(0.3, 1 - ri * 0.06);
+      var sz = ri === 0 ? '12px' : '11px';
+      var wt = ri === 0 ? 'bold' : 'normal';
+      html += '<div style="margin-bottom:6px;opacity:' + op + ';border-left:2px solid rgba(245,158,11,' + op + ');padding-left:6px">'
+            + '<span style="font-size:' + sz + ';font-weight:' + wt + ';color:#f0f0f0">' + r.name + '</span>'
+            + '<br><span style="font-size:9px;opacity:0.6">' + r.date + '</span>'
+            + '</div>';
+    }});
+    panel.innerHTML = html;
+  }}
+
+  // ── Apply frame data ────────────────────────────────────────────────────
+  // Use restyle (trace-only, fast) and return its Promise so ticks chain off it.
+  // Never touch gd.layout.sliders during animation — that fires plotly_sliderchange.
+  function applyData(i) {{
+    var f = fms[i];
+    // Mutate text directly — restyle's own redraw picks it up without needing
+    // text in the restyle call (which can cause mapbox Promise rejections).
+    gd.data[0].text = f.w.tx;
+    gd.data[1].text = f.uk.tx;
+    updatePanel(i);
+    var p = Plotly.restyle(gd,
+      {{'marker.size':  [f.w.ds,  f.uk.ds],
+        'marker.color': [f.w.c,   f.uk.c]}},
+      [0, 1]);
+    return (p && p.then) ? p : Promise.resolve();
+  }}
+
+  // Full version used when manually moving the slider — updates slider label too.
+  function applyFull(i) {{
+    var f = fms[i];
+    // Rebuild recent list up to this point for the panel
+    recent = [];
+    for (var j = 0; j <= i; j++) {{
+      if (interesting[j]) recent.push({{name: companies[j], date: dateStrs[j]}});
+    }}
+    recent = recent.slice(-5).reverse();
+    updatePanel(i);
+    gd.layout.sliders[0].active = i;
+    return Plotly.restyle(gd,
+      {{'marker.size':  [f.w.ds,  f.uk.ds],
+        'marker.color': [f.w.c,   f.uk.c],
+        'text':         [f.w.tx,  f.uk.tx]}},
+      [0, 1]);
+  }}
+
+  // ── Playback control ────────────────────────────────────────────────────
+  // Chain ticks off the render Promise so panel and map stay in sync.
+  function tick() {{
+    if (!playing) return;
+    if (idx < n - 1) {{
+      idx++;
+      applyData(idx).then(function() {{
+        if (playing) setTimeout(tick, ms);
+      }}).catch(function() {{
+        if (playing) setTimeout(tick, ms);
+      }});
+    }} else {{
+      pause();
+    }}
+  }}
+  function play()  {{ if (!playing) {{ playing = true;  setTimeout(tick, ms); }} }}
+  function pause() {{ playing = false; }}
+
+  gd.on('plotly_buttonclicked', function(e) {{
+    if (e.button.label === 'Play')  play();
+    if (e.button.label === 'Pause') pause();
+  }});
+  gd.on('plotly_sliderchange', function(e) {{
+    if (playing) return;   // ignore slider events fired by Plotly during animation
+    pause(); idx = e.slider.active; applyFull(idx);
+  }});
+  gd.addEventListener('click', function(e) {{
+    var el = e.target;
+    for (var i = 0; i < 8; i++) {{
+      if (!el || el === gd) break;
+      var t = (el.textContent || '').trim();
+      if (t === 'Play')  {{ play();  return; }}
+      if (t === 'Pause') {{ pause(); return; }}
+      el = el.parentElement;
+    }}
+  }}, true);
+}})();"""
+        return fig, post_script
+
+    # ── VECTOR ───────────────────────────────────────────────────────────────
+    geo_common = dict(
+        showland=True,       landcolor="rgb(242, 237, 230)",
+        showcoastlines=True, coastlinecolor="rgb(155, 155, 155)", coastlinewidth=1,
+        showocean=True,      oceancolor="rgb(218, 232, 245)",
+        showcountries=True,  countrycolor="rgb(200, 200, 200)",
+        bgcolor="rgba(0,0,0,0)",
+    )
+
+    fig = make_subplots(
+        rows=1, cols=2,
+        column_widths=[0.55, 0.45],
+        specs=[[{"type": "geo"}, {"type": "geo"}]],
+        subplot_titles=["World", "United Kingdom"],
+    )
+
+    ht = [
+        f"<b>{companies[i]}</b><br>{dates[i].strftime('%d %b %Y')}"
+        for i in range(n)
+    ]
+
+    def vec_trace(sz, c, tx, geo_ref, fs=11):
+        return go.Scattergeo(
+            lat=lats, lon=lons, mode="markers+text",
+            marker=dict(size=sz, color=c, opacity=0.9,
+                        line=dict(width=1.5, color="white")),
+            text=tx, textposition="top center",
+            textfont=dict(size=fs, color="#1e1b4b", family="Arial Bold"),
+            hovertext=ht, hoverinfo="text",
+            geo=geo_ref,
+        )
+
+    empty_sz = [0] * n
+    empty_c  = ["rgba(0,0,0,0)"] * n
+    fig.add_trace(vec_trace(empty_sz, empty_c, [""]*n, "geo"),  row=1, col=1)
+    fig.add_trace(vec_trace(empty_sz, empty_c, [""]*n, "geo2"), row=1, col=2)
+
+    plotly_frames = []
+    for idx in range(n):
+        c = frame_colors[idx]
+        plotly_frames.append(go.Frame(
+            name=f"frame_{idx}",
+            data=[
+                vec_trace(sizes(idx, 18, 10), c, world_texts(idx), "geo",  fs=11),
+                vec_trace(sizes(idx, 22, 12), c, uk_texts(idx),    "geo2", fs=10),
+            ],
+        ))
+    fig.frames = plotly_frames
+
+    fig.update_layout(
+        geo=dict(**geo_common, scope="world", projection_type="natural earth"),
+        geo2=dict(**geo_common,
+                  lonaxis=dict(range=[-9, 3]), lataxis=dict(range=[49, 62]),
+                  resolution=50),
+        title=dict(text="Mailing List Sign-ups",
+                   font=dict(size=18, color="#333"), x=0.5, xanchor="center"),
+        paper_bgcolor="white",
+        updatemenus=[dict(
+            type="buttons", showactive=False,
+            x=0.01, y=0.99, xanchor="left", yanchor="top",
+            buttons=[
+                dict(label="Play", method="animate",
+                     args=[None, dict(
+                         frame=dict(duration=frame_ms, redraw=True),
+                         fromcurrent=True, transition=dict(duration=0),
+                     )]),
+                dict(label="Pause", method="animate",
+                     args=[[None], dict(frame=dict(duration=0, redraw=False),
+                                        mode="immediate")]),
+            ],
+        )],
+        sliders=[dict(
+            active=0, steps=slider_steps,
+            x=0.05, len=0.9, y=0, yanchor="top",
+            currentvalue=dict(prefix="Joined: ", font=dict(size=12, color="#333")),
+            transition=dict(duration=0),
+        )],
+        showlegend=False, height=640,
+        margin=dict(t=70, b=80, l=10, r=10),
+        annotations=[dict(
+            x=0.5, y=-0.08, xref="paper", yref="paper",
+            text=legend_html, showarrow=False,
+            font=dict(size=12, color="#333"), align="center",
+        )],
+    )
+
+    return fig, None
+
+
+# ─────────────────────────────────────────────
+#  MAIN
+# ─────────────────────────────────────────────
+
+def parse_args():
+    p = argparse.ArgumentParser(description="Animated mailing-list world map.")
+    p.add_argument("--data",      default="data/mailing.tsv")
+    p.add_argument("--map-style", default="vector", choices=["vector", "satellite"],
+                   help="Map background: vector (default) or satellite imagery")
+    p.add_argument("--speed",     default="normal",
+                   choices=["slow", "normal", "fast", "instant"],
+                   help="Animation speed (default: normal)")
+    return p.parse_args()
+
+
+def main():
+    opts = parse_args()
+    os.makedirs("output", exist_ok=True)
+
+    print(f"Loading {opts.data} ...")
+    df = load_mailing(opts.data)
+    print(f"  {len(df)} subscribers, date range: "
+          f"{df['date'].min().date()} – {df['date'].max().date()}")
+
+    print("Geocoding companies ...")
+    coords = geocode_all(df)
+
+    df["lat"] = [c[0] if c else None for c in coords]
+    df["lon"] = [c[1] if c else None for c in coords]
+
+    missing = df[df["lat"].isna()]
+    if not missing.empty:
+        print(f"  WARNING: {len(missing)} entries could not be geocoded and will be skipped:")
+        for _, r in missing.iterrows():
+            print(f"    {r['Company']!r} ({r['Location']})")
+
+    df = df.dropna(subset=["lat", "lon"]).reset_index(drop=True)
+    print(f"  {len(df)} entries with coordinates")
+
+    if df.empty:
+        print("ERROR: No geocoded entries. Exiting.")
+        sys.exit(1)
+
+    frame_ms  = SPEED_MS[opts.speed]
+    satellite = opts.map_style == "satellite"
+    print(f"Building figure (map-style={opts.map_style}, speed={opts.speed} / {frame_ms}ms) ...")
+    fig, post_script = build_figure(df, satellite=satellite, frame_ms=frame_ms)
+
+    write_kwargs = {"post_script": post_script} if post_script else {}
+    fig.write_html(OUTPUT_HTML, **write_kwargs)
+    print(f"Saved → {OUTPUT_HTML}")
+
+
+if __name__ == "__main__":
+    main()
