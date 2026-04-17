@@ -243,8 +243,13 @@ def build_figure(df, satellite=False, frame_ms=800):
     companies = df["Company"].tolist()
     dates     = df["date"].tolist()
     n         = len(df)
+    locations = df["Location"].tolist()
     uk_mask   = [_in_uk(lats[i], lons[i]) for i in range(n)]
     interesting = [_interesting(companies[i]) for i in range(n)]
+
+    def hover_label(i):
+        name = companies[i] or locations[i] or "Unknown"
+        return f"<b>{name}</b><br>{dates[i].strftime('%d %b %Y')}"
 
     # Location key for grouping — round to ~1km precision
     loc_key = [f"{round(lats[i], 2)},{round(lons[i], 2)}" for i in range(n)]
