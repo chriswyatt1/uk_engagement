@@ -323,10 +323,7 @@ def build_figure(df, satellite=False, frame_ms=800):
                 marker=dict(size=sz, color=c, opacity=0.9),
                 text=tx, textposition="top right",
                 textfont=dict(size=11, color="white", family="Arial Black"),
-                hovertext=[
-                    f"<b>{companies[i]}</b><br>{dates[i].strftime('%d %b %Y')}"
-                    for i in range(n)
-                ],
+                hovertext=[hover_label(i) for i in range(n)],
                 hoverinfo="text",
                 subplot=subplot,
             )
@@ -536,10 +533,7 @@ def build_figure(df, satellite=False, frame_ms=800):
         subplot_titles=["World", "United Kingdom"],
     )
 
-    ht = [
-        f"<b>{companies[i]}</b><br>{dates[i].strftime('%d %b %Y')}"
-        for i in range(n)
-    ]
+    ht = [hover_label(i) for i in range(n)]
 
     def vec_trace(sz, c, tx, geo_ref, fs=11):
         return go.Scattergeo(
