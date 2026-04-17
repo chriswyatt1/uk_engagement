@@ -228,15 +228,116 @@ def _interesting(company):
     return bool(company) and company not in BORING_LABELS
 
 
-HEAT_PALETTE = ["#3b82f6", "#06b6d4", "#4ade80", "#f59e0b", "#ef4444"]
+DEFAULT_THRESHOLDS = [1, 2, 3, 4, 5]
+
+PALETTES = {
+    "BlRd":    ["#3b82f6", "#06b6d4", "#22d3ee", "#4ade80", "#a3e635",
+                "#facc15", "#fb923c", "#f87171", "#ef4444", "#b91c1c"],
+    "RdBl":    ["#b91c1c", "#ef4444", "#f87171", "#fb923c", "#facc15",
+                "#a3e635", "#4ade80", "#22d3ee", "#06b6d4", "#3b82f6"],
+    "warm":    ["#fef9c3", "#fef08a", "#fde047", "#facc15", "#fb923c",
+                "#f97316", "#ef4444", "#dc2626", "#b91c1c", "#7f1d1d"],
+    "cool":    ["#e0f2fe", "#bae6fd", "#7dd3fc", "#60a5fa", "#818cf8",
+                "#a78bfa", "#c084fc", "#e879f9", "#f0abfc", "#fbcfe8"],
+    "viridis": ["#440154", "#482878", "#3e4989", "#31688e", "#26828e",
+                "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725"],
+    "plasma":  ["#0d0887", "#46039f", "#7201a8", "#9c179e", "#bd3786",
+                "#d8576b", "#ed7953", "#fb9f3a", "#fdcf18", "#f0f921"],
+    "greys":   ["#f3f4f6", "#d1d5db", "#9ca3af", "#6b7280", "#4b5563",
+                "#374151", "#1f2937", "#111827", "#030712", "#000000"],
+}
 
 
-def _heat_color(count):
-    return HEAT_PALETTE[min(count - 1, len(HEAT_PALETTE) - 1)]
+def _sample_palette(colors, n):
+    """Pick n evenly-spaced colors from a list of any length."""
+    if n == 1:
+        return [colors[-1]]
+    indices = [round(i * (len(colors) - 1) / (n - 1)) for i in range(n)]
+    return [colors[i] for i in indices]
 
 
-def build_figure(df, satellite=False, frame_ms=800):
+def _resolve_palette(palette_str, n):
+    """Return exactly n color strings from a named palette or comma-separated colors."""
+    if palette_str in PALETTES:
+        return _sample_palette(PALETTES[palette_str], n)
+    colors = [c.strip() for c in palette_str.split(",") if c.strip()]
+    if not colors:
+        return _sample_palette(PALETTES["BlRd"], n)
+    return _sample_palette(colors, n) if len(colors) != n else colors
+
+
+def _heat_color(count, thresholds, palette_colors):
+    idx = 0
+    for i, t in enumerate(thresholds):
+        if count >= t:
+            idx = i
+    return palette_colors[idx]
+
+
+def _chart_block(show_chart, dark):
+    """Return JS snippet (NOT an f-string) for the cumulative line chart overlay.
+    Uses placeholder tokens replaced via .replace() so JS braces need no escaping."""
+    if not show_chart:
+        return "function updateChart(i) {}"
+    bg     = "rgba(10,10,30,0.82)" if dark else "rgba(255,255,255,0.88)"
+    stroke = "#f59e0b"             if dark else "#d97706"
+    ax_col = "rgba(255,255,255,0.2)" if dark else "rgba(0,0,0,0.15)"
+    tc_col = "rgba(255,255,255,0.4)" if dark else "rgba(0,0,0,0.4)"
+    cc_col = "white"               if dark else "#111"
+    tmpl = (
+        "  var SVG_NS = 'http://www.w3.org/2000/svg';\n"
+        "  var svg = document.createElementNS(SVG_NS, 'svg');\n"
+        "  svg.setAttribute('width', '200'); svg.setAttribute('height', '100');\n"
+        "  svg.style.cssText = 'position:absolute;top:70px;right:10px;"
+            "background:BG;border-radius:6px;pointer-events:none;z-index:100';\n"
+        "  function svgEl(tag, attrs) {\n"
+        "    var el = document.createElementNS(SVG_NS, tag);\n"
+        "    Object.keys(attrs).forEach(function(k) { el.setAttribute(k, attrs[k]); });\n"
+        "    return el;\n"
+        "  }\n"
+        "  svg.appendChild(svgEl('line', {x1:28,y1:78,x2:192,y2:78,"
+            "stroke:'AX','stroke-width':1}));\n"
+        "  svg.appendChild(svgEl('line', {x1:28,y1:12,x2:28,y2:78,"
+            "stroke:'AX','stroke-width':1}));\n"
+        "  var titleSvg = svgEl('text', {x:110,y:9,fill:'TC',"
+            "'font-size':8,'text-anchor':'middle','font-family':'Arial,sans-serif'});\n"
+        "  titleSvg.textContent = 'Cumulative sign-ups';\n"
+        "  svg.appendChild(titleSvg);\n"
+        "  var countEl = svgEl('text', {x:192,y:30,fill:'CC',"
+            "'font-size':22,'text-anchor':'end','font-weight':'bold',"
+            "'font-family':'Arial,sans-serif'});\n"
+        "  countEl.textContent = '0';\n"
+        "  svg.appendChild(countEl);\n"
+        "  var lineEl = svgEl('polyline', {points:'',fill:'none',stroke:'ST',"
+            "'stroke-width':2,'stroke-linejoin':'round'});\n"
+        "  svg.appendChild(lineEl);\n"
+        "  var dotEl = svgEl('circle', {cx:28,cy:78,r:3.5,fill:'ST'});\n"
+        "  svg.appendChild(dotEl);\n"
+        "  wrap.appendChild(svg);\n"
+        "  var t0 = tms[0], tRange = Math.max(tms[n - 1] - tms[0], 1);\n"
+        "  function chartX(i) { return (28 + (tms[i]-t0)/tRange*164).toFixed(1); }\n"
+        "  function chartY(i) { return (78 - (i+1)/n*66).toFixed(1); }\n"
+        "  function updateChart(i) {\n"
+        "    var pts = '';\n"
+        "    for (var j = 0; j <= i; j++) { pts += chartX(j)+','+chartY(j)+' '; }\n"
+        "    lineEl.setAttribute('points', pts);\n"
+        "    dotEl.setAttribute('cx', chartX(i));\n"
+        "    dotEl.setAttribute('cy', chartY(i));\n"
+        "    countEl.textContent = String(i + 1);\n"
+        "  }"
+    )
+    return tmpl.replace("BG", bg).replace("AX", ax_col).replace("TC", tc_col) \
+               .replace("CC", cc_col).replace("ST", stroke)
+
+
+def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
+                 thresholds=None, palette_colors=None):
     from collections import defaultdict
+
+    if thresholds is None:
+        thresholds = DEFAULT_THRESHOLDS
+    if palette_colors is None:
+        palette_colors = _sample_palette(PALETTES["BlRd"], len(thresholds))
 
     lats      = df["lat"].tolist()
     lons      = df["lon"].tolist()
@@ -254,13 +355,15 @@ def build_figure(df, satellite=False, frame_ms=800):
     # Location key for grouping — round to ~1km precision
     loc_key = [f"{round(lats[i], 2)},{round(lons[i], 2)}" for i in range(n)]
 
+    timestamps_ms_js = json.dumps([int(d.timestamp() * 1000) for d in dates])
+
     # Pre-compute per-frame heatmap colors: each dot reflects cumulative visit count
     frame_colors = []
     loc_count = defaultdict(int)
     for idx in range(n):
         loc_count[loc_key[idx]] += 1
         frame_colors.append([
-            _heat_color(loc_count[loc_key[i]]) if i <= idx else "rgba(0,0,0,0)"
+            _heat_color(loc_count[loc_key[i]], thresholds, palette_colors) if i <= idx else "rgba(0,0,0,0)"
             for i in range(n)
         ])
 
@@ -296,9 +399,10 @@ def build_figure(df, satellite=False, frame_ms=800):
         for idx in range(n)
     ]
 
+    thresh_labels = [str(t) for t in thresholds[:-1]] + [f"{thresholds[-1]}+"]
     legend_html = (
-        ''.join(f'<span style="color:{c}">●</span> {t}  '
-                for c, t in zip(HEAT_PALETTE, ["1", "2", "3", "4", "5+"])) +
+        ''.join(f'<span style="color:{c}">●</span> {lbl}  '
+                for c, lbl in zip(palette_colors, thresh_labels)) +
         '&nbsp;&nbsp;sign-ups at location'
     )
 
@@ -386,6 +490,7 @@ def build_figure(df, satellite=False, frame_ms=800):
         interesting_js = json.dumps(interesting)
         dates_js       = json.dumps([d.strftime("%d %b %Y") for d in dates])
         frames_json    = json.dumps(sat_frames)
+        chart_js       = _chart_block(show_chart, dark=True)
         post_script = f"""\
 (function() {{
   var gd          = document.querySelector('.plotly-graph-div');
@@ -393,6 +498,7 @@ def build_figure(df, satellite=False, frame_ms=800):
   var interesting = {interesting_js};
   var dateStrs    = {dates_js};
   var companies   = {json.dumps(companies)};
+  var tms         = {timestamps_ms_js};
   var n           = fms.length;
   var idx         = 0, timer = null, ms = {frame_ms};
   var playing     = false;
@@ -424,6 +530,8 @@ def build_figure(df, satellite=False, frame_ms=800):
   wrap.style.position = 'relative';
   wrap.appendChild(panel);
 
+  {chart_js}
+
   function updatePanel(i) {{
     if (interesting[i]) {{
       recent.unshift({{name: companies[i], date: dateStrs[i]}});
@@ -451,6 +559,7 @@ def build_figure(df, satellite=False, frame_ms=800):
     gd.data[0].text = f.w.tx;
     gd.data[1].text = f.uk.tx;
     updatePanel(i);
+    updateChart(i);
     var p = Plotly.restyle(gd,
       {{'marker.size':  [f.w.ds,  f.uk.ds],
         'marker.color': [f.w.c,   f.uk.c]}},
@@ -468,6 +577,7 @@ def build_figure(df, satellite=False, frame_ms=800):
     }}
     recent = recent.slice(-5).reverse();
     updatePanel(i);
+    updateChart(i);
     gd.layout.sliders[0].active = i;
     return Plotly.restyle(gd,
       {{'marker.size':  [f.w.ds,  f.uk.ds],
@@ -598,7 +708,32 @@ def build_figure(df, satellite=False, frame_ms=800):
         )],
     )
 
-    return fig, None
+    if not show_chart:
+        return fig, None
+
+    # ── Vector post-script: mini cumulative chart ─────────────────────────
+    chart_js = _chart_block(show_chart=True, dark=False)
+    vec_post_script = f"""\
+(function() {{
+  var gd  = document.querySelector('.plotly-graph-div');
+  var tms = {timestamps_ms_js};
+  var n   = {n};
+  var wrap = gd.closest('.js-plotly-plot') || gd.parentElement;
+  wrap.style.position = 'relative';
+
+  {chart_js}
+
+  gd.on('plotly_animatingframe', function(e) {{
+    var name = e.frame && e.frame.name;
+    if (!name) return;
+    var m = name.match(/frame_(\\d+)/);
+    if (m) updateChart(parseInt(m[1], 10));
+  }});
+  gd.on('plotly_sliderchange', function(e) {{
+    updateChart(e.slider.active);
+  }});
+}})();"""
+    return fig, vec_post_script
 
 
 # ─────────────────────────────────────────────
@@ -613,6 +748,15 @@ def parse_args():
     p.add_argument("--speed",     default="normal",
                    choices=["slow", "normal", "fast", "instant"],
                    help="Animation speed (default: normal)")
+    p.add_argument("--chart", action="store_true",
+                   help="Overlay a cumulative sign-up line chart on the map")
+    p.add_argument("--thresholds", default="1,2,3,4,5",
+                   help="Comma-separated sign-up thresholds for heatmap colours "
+                        "(default: 1,2,3,4,5 → 5 colours; e.g. 1,3,5,20 → 4 colours)")
+    p.add_argument("--palette", default="BlRd",
+                   help=f"Named palette ({', '.join(PALETTES)}) or comma-separated "
+                        "CSS/hex colours matching the number of thresholds "
+                        "(default: BlRd)")
     return p.parse_args()
 
 
@@ -646,8 +790,21 @@ def main():
 
     frame_ms  = SPEED_MS[opts.speed]
     satellite = opts.map_style == "satellite"
-    print(f"Building figure (map-style={opts.map_style}, speed={opts.speed} / {frame_ms}ms) ...")
-    fig, post_script = build_figure(df, satellite=satellite, frame_ms=frame_ms)
+
+    try:
+        thresholds = sorted(set(int(x.strip()) for x in opts.thresholds.split(",")))
+        if not thresholds or thresholds[0] < 1:
+            raise ValueError
+    except ValueError:
+        print("ERROR: --thresholds must be comma-separated positive integers, e.g. 1,3,5,20")
+        sys.exit(1)
+    palette_colors = _resolve_palette(opts.palette, len(thresholds))
+
+    print(f"Building figure (map-style={opts.map_style}, speed={opts.speed} / {frame_ms}ms, "
+          f"thresholds={thresholds}, palette={opts.palette}, chart={opts.chart}) ...")
+    fig, post_script = build_figure(df, satellite=satellite, frame_ms=frame_ms,
+                                    show_chart=opts.chart,
+                                    thresholds=thresholds, palette_colors=palette_colors)
 
     write_kwargs = {"post_script": post_script} if post_script else {}
     fig.write_html(OUTPUT_HTML, **write_kwargs)

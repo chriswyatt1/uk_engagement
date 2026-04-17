@@ -137,13 +137,52 @@ GEOCODE_OVERRIDES = {
 
 ### Options
 
-| Flag | Options | Default | Description |
-|------|---------|---------|-------------|
+| Flag | Options / type | Default | Description |
+|------|----------------|---------|-------------|
 | `--data` | file path | `data/mailing.tsv` | Input TSV file |
-| `--map-style` | `vector`, `satellite` | `vector` | Map background: vector or satellite imagery |
-| `--speed` | `slow`, `normal`, `fast`, `instant` | `normal` | How fast subscribers are added (800 / 300 / 80 ms) |
+| `--map-style` | `vector`, `satellite` | `vector` | Map background: vector tiles or satellite imagery |
+| `--speed` | `slow`, `normal`, `fast`, `instant` | `normal` | Animation speed — time between subscribers (1500 / 800 / 300 / 80 ms) |
+| `--chart` | flag | off | Overlay a small cumulative sign-up line chart in the top-right corner |
+| `--thresholds` | comma-separated integers | `1,2,3,4,5` | Sign-up counts that trigger a colour change on the heatmap dot (see below) |
+| `--palette` | palette name or colours | `BlRd` | Dot colour scheme — named palette or custom colours (see below) |
 
 ```bash
 python3 mailing_map.py --map-style satellite --speed fast
-python3 mailing_map.py --speed instant   # blaze through all subscribers
+python3 mailing_map.py --speed instant            # blaze through all subscribers
+python3 mailing_map.py --chart                    # show cumulative sign-up chart
+python3 mailing_map.py --thresholds 1,5,10,25 --palette viridis
+python3 mailing_map.py --thresholds 1,3 --palette "steelblue,crimson"
+```
+
+### Heatmap colours (`--thresholds` and `--palette`)
+
+Each dot changes colour as more subscribers join from the same location. `--thresholds` sets the sign-up counts at which the colour steps up, and `--palette` controls the colour range.
+
+**Thresholds** — the number of values determines how many colour steps there are:
+
+```
+--thresholds 1,2,3,4,5    →  5 colours: 1, 2, 3, 4, 5+   (default)
+--thresholds 1,3,5,20     →  4 colours: 1, 3, 5, 20+
+--thresholds 1,10          →  2 colours: 1, 10+
+```
+
+**Named palettes** (colours run low → high count):
+
+| Name | Description |
+|------|-------------|
+| `BlRd` | Blue → red (default) |
+| `RdBl` | Red → blue |
+| `warm` | Yellow → orange → red |
+| `cool` | Light blue → purple → pink |
+| `viridis` | Purple → teal → yellow |
+| `plasma` | Dark blue → orange → yellow |
+| `greys` | Light grey → black |
+
+The palette is always sampled to match however many thresholds you give, so every combination works.
+
+**Custom colours** — pass a comma-separated list of CSS colour names or hex codes. The number of colours should match the number of thresholds:
+
+```bash
+python3 mailing_map.py --thresholds 1,5,20 --palette "royalblue,orange,crimson"
+python3 mailing_map.py --thresholds 1,3,5  --palette "#4ade80,#f59e0b,#ef4444"
 ```
