@@ -17,6 +17,7 @@ Requirements:
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -248,17 +249,20 @@ REGIONS = {
     },
     "uk": {
         "label": "United Kingdom", "bounds": (49, 62, -9, 3), "large": 22, "small": 12,
-        "geo":    dict(lonaxis=dict(range=[-9, 3]), lataxis=dict(range=[49, 62]), resolution=50),
+        "geo":    dict(lonaxis=dict(range=[-9, 3]), lataxis=dict(range=[49, 62]),
+                       resolution=50, projection_type="mercator"),
         "mapbox": dict(center=dict(lat=55, lon=-3), zoom=4.5),
     },
     "southeastuk": {
         "label": "South East UK", "bounds": (50.5, 52.5, -1.5, 2.0), "large": 26, "small": 14,
-        "geo":    dict(lonaxis=dict(range=[-1.5, 2.0]), lataxis=dict(range=[50.5, 52.5]), resolution=50),
+        "geo":    dict(lonaxis=dict(range=[-1.5, 2.0]), lataxis=dict(range=[50.5, 52.5]),
+                       resolution=50, projection_type="mercator"),
         "mapbox": dict(center=dict(lat=51.5, lon=0.2), zoom=7.5),
     },
     "london": {
         "label": "London", "bounds": (51.2, 51.8, -0.6, 0.4), "large": 30, "small": 16,
-        "geo":    dict(lonaxis=dict(range=[-0.6, 0.4]), lataxis=dict(range=[51.2, 51.8]), resolution=50),
+        "geo":    dict(lonaxis=dict(range=[-0.6, 0.4]), lataxis=dict(range=[51.2, 51.8]),
+                       resolution=50, projection_type="mercator"),
         "mapbox": dict(center=dict(lat=51.5, lon=-0.1), zoom=9.5),
     },
     "usa": {
@@ -334,6 +338,225 @@ PALETTES = {
     "greys":   ["#f3f4f6", "#d1d5db", "#9ca3af", "#6b7280", "#4b5563",
                 "#374151", "#1f2937", "#111827", "#030712", "#000000"],
 }
+
+
+# ─────────────────────────────────────────────
+#  UK DOT MAP
+# ─────────────────────────────────────────────
+
+DOT_SPACING = 0.35  # degrees lon (~35 km at UK latitudes)
+# In mercator, 1° lat = 1/cos(lat) × 1° lon on screen, so to get square visual
+# spacing at the UK's mid-latitude (~55°N) we shrink the lat step accordingly.
+UK_DOT_LAT_SPACING = DOT_SPACING * math.cos(math.radians(55.0))  # ≈ 0.201°
+
+UK_LAND_GEOJSON  = "data/ne_50m_admin_0_gbr.geojson"
+_UK_COUNTRIES_URL = (
+    "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/"
+    "master/geojson/ne_50m_admin_0_countries.geojson"
+)
+
+
+def _fetch_uk_land():
+    """Download (once) and cache Natural Earth 50m UK boundary polygon."""
+    p = Path(UK_LAND_GEOJSON)
+    if p.exists():
+        with open(p) as f:
+            return json.load(f)
+    import urllib.request
+    countries_path = Path("data/ne_50m_admin_0_countries.geojson")
+    if not countries_path.exists():
+        print("  Fetching country boundaries for UK outline (cached for future runs) ...")
+        countries_path.parent.mkdir(parents=True, exist_ok=True)
+        urllib.request.urlretrieve(_UK_COUNTRIES_URL, countries_path)
+    with open(countries_path) as f:
+        all_gj = json.load(f)
+    uk_features = [
+        feat for feat in all_gj.get("features", [])
+        if feat.get("properties", {}).get("ISO_A3") in ("GBR",)
+        or feat.get("properties", {}).get("ADM0_A3") in ("GBR",)
+    ]
+    uk_gj = {"type": "FeatureCollection", "features": uk_features}
+    with open(p, "w") as f:
+        json.dump(uk_gj, f)
+    return uk_gj
+
+
+def generate_uk_dots(lon_spacing=DOT_SPACING, lat_spacing=UK_DOT_LAT_SPACING):
+    """Return (lat, lon) grid points within the UK using NE 50m admin boundary."""
+    import numpy as np
+    gj    = _fetch_uk_land()
+    polys = _polys_from_geojson(gj)
+
+    row_lats, row_lons = [], []
+    lat = 49.5
+    while lat <= 61.0:
+        lon = -9.0
+        while lon <= 2.5:
+            row_lats.append(round(lat, 4))
+            row_lons.append(round(lon, 4))
+            lon += lon_spacing
+        lat += lat_spacing
+
+    all_lats = np.array(row_lats)
+    all_lons = np.array(row_lons)
+    inside   = np.zeros(len(all_lats), dtype=bool)
+
+    for poly in polys:
+        py = np.array([p[0] for p in poly])
+        px = np.array([p[1] for p in poly])
+        bb_mask = (
+            (all_lats >= py.min() - lat_spacing) & (all_lats <= py.max() + lat_spacing) &
+            (all_lons >= px.min() - lon_spacing) & (all_lons <= px.max() + lon_spacing)
+        )
+        idx = np.where(bb_mask)[0]
+        if len(idx) == 0:
+            continue
+        sub_lats = all_lats[idx]
+        sub_lons = all_lons[idx]
+        sub_inside = np.zeros(len(idx), dtype=bool)
+        n_pts = len(poly)
+        for i in range(n_pts):
+            j = (i - 1) % n_pts
+            yi, xi = py[i], px[i]
+            yj, xj = py[j], px[j]
+            cond1 = (yi > sub_lats) != (yj > sub_lats)
+            slope = (xj - xi) * (sub_lats - yi) / (yj - yi + 1e-12) + xi
+            sub_inside ^= cond1 & (sub_lons < slope)
+        inside[idx] ^= sub_inside
+
+    return [(float(all_lats[i]), float(all_lons[i])) for i in range(len(all_lats)) if inside[i]]
+
+
+def _snap_to_grid(lat, lon, grid):
+    """Return the nearest grid dot to (lat, lon)."""
+    best, best_d = grid[0], float("inf")
+    for dlat, dlon in grid:
+        d = (dlat - lat) ** 2 + (dlon - lon) ** 2
+        if d < best_d:
+            best_d = d
+            best = (dlat, dlon)
+    return best
+
+
+def _snap_all(lats, lons, grid):
+    """Snap each (lat, lon) to nearest grid dot if within the UK bounding box."""
+    uk_lat = (49.0, 62.0)
+    uk_lon = (-9.0, 3.0)
+    snapped_lats, snapped_lons = [], []
+    for lat, lon in zip(lats, lons):
+        if uk_lat[0] <= lat <= uk_lat[1] and uk_lon[0] <= lon <= uk_lon[1]:
+            slat, slon = _snap_to_grid(lat, lon, grid)
+        else:
+            slat, slon = lat, lon
+        snapped_lats.append(slat)
+        snapped_lons.append(slon)
+    return snapped_lats, snapped_lons
+
+
+def _snap_all_world(lats, lons, grid):
+    """Snap every (lat, lon) to the nearest world-grid dot (no bounding restriction)."""
+    snapped_lats, snapped_lons = [], []
+    for lat, lon in zip(lats, lons):
+        slat, slon = _snap_to_grid(lat, lon, grid)
+        snapped_lats.append(slat)
+        snapped_lons.append(slon)
+    return snapped_lats, snapped_lons
+
+
+# ─────────────────────────────────────────────
+#  WORLD DOT MAP
+# ─────────────────────────────────────────────
+
+WORLD_LAND_GEOJSON = "data/ne_50m_land.geojson"
+WORLD_LAND_URL = (
+    "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/"
+    "master/geojson/ne_50m_land.geojson"
+)
+WORLD_DOT_SPACING = 4.0   # degrees (~440 km)
+DOT_BG_COLOR      = "#6ee7b7"  # inactive dot colour (emerald green)
+
+
+def _fetch_world_land():
+    """Download (once) and cache Natural Earth 110m land polygons as GeoJSON."""
+    p = Path(WORLD_LAND_GEOJSON)
+    if p.exists():
+        with open(p) as f:
+            return json.load(f)
+    import urllib.request
+    print(f"  Fetching world land data → {WORLD_LAND_GEOJSON} (cached for future runs) ...")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    urllib.request.urlretrieve(WORLD_LAND_URL, p)
+    with open(p) as f:
+        return json.load(f)
+
+
+def _polys_from_geojson(gj):
+    """Extract polygon ring coordinate lists from a GeoJSON FeatureCollection."""
+    polys = []
+    for feature in gj.get("features", []):
+        geom  = feature.get("geometry", {})
+        gtype = geom.get("type", "")
+        coords = geom.get("coordinates", [])
+        if gtype == "Polygon":
+            polys.append([(lat, lon) for lon, lat in coords[0]])
+        elif gtype == "MultiPolygon":
+            for part in coords:
+                polys.append([(lat, lon) for lon, lat in part[0]])
+    return polys
+
+
+def generate_world_dots(spacing=WORLD_DOT_SPACING):
+    """Return (lat, lon) grid points over world land areas using NE 50m polygons.
+
+    Latitude step shrinks by cos(lat) per row (same technique as the UK panel)
+    so dots appear proportionally correct at high latitudes without thinning
+    the longitude coverage that would drop dots in northern land masses.
+    """
+    import numpy as np
+    gj    = _fetch_world_land()
+    polys = _polys_from_geojson(gj)
+
+    # Uniform grid — equal density in both hemispheres.
+    # Natural Earth projection already handles high-latitude compression visually.
+    step = spacing
+    row_lats, row_lons = [], []
+    lat = -58.0
+    while lat <= 80.0:
+        lon = -180.0
+        while lon <= 180.0:
+            row_lats.append(round(lat, 2))
+            row_lons.append(round(lon, 2))
+            lon += step
+        lat += step
+
+    all_lats = np.array(row_lats)
+    all_lons = np.array(row_lons)
+    inside   = np.zeros(len(all_lats), dtype=bool)
+
+    for poly in polys:
+        py = np.array([p[0] for p in poly])
+        px = np.array([p[1] for p in poly])
+        bb_mask = (
+            (all_lats >= py.min() - spacing) & (all_lats <= py.max() + spacing) &
+            (all_lons >= px.min() - spacing) & (all_lons <= px.max() + spacing)
+        )
+        idx = np.where(bb_mask)[0]
+        if len(idx) == 0:
+            continue
+        sub_lats = all_lats[idx]
+        sub_lons = all_lons[idx]
+        sub_inside = np.zeros(len(idx), dtype=bool)
+        n_pts = len(poly)
+        for i in range(n_pts):
+            j = (i - 1) % n_pts
+            yi, xi = py[i], px[i]
+            yj, xj = py[j], px[j]
+            cond1 = (yi > sub_lats) != (yj > sub_lats)
+            slope = (xj - xi) * (sub_lats - yi) / (yj - yi + 1e-12) + xi
+            sub_inside ^= cond1 & (sub_lons < slope)
+        inside[idx] ^= sub_inside
+
+    return [(float(all_lats[i]), float(all_lons[i])) for i in range(len(all_lats)) if inside[i]]
 
 
 def _sample_palette(colors, n):
@@ -419,7 +642,7 @@ def _chart_block(show_chart, dark):
 
 
 def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
-                 thresholds=None, palette_colors=None, regions=None):
+                 thresholds=None, palette_colors=None, regions=None, dot_map=False):
     from collections import defaultdict
 
     if thresholds is None:
@@ -486,7 +709,7 @@ def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
     slider_steps = [
         dict(
             label=dates[idx].strftime("%d %b %Y"),
-            method="animate" if not satellite else "skip",
+            method="animate" if (not satellite and not dot_map) else "skip",
             args=[[f"frame_{idx}"], dict(
                 mode="immediate",
                 frame=dict(duration=0, redraw=True),
@@ -761,49 +984,104 @@ def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
 
     empty_sz = [0] * n
     empty_c  = ["rgba(0,0,0,0)"] * n
-    fig.add_trace(vec_trace(empty_sz, empty_c, [""]*n, "geo"),  row=1, col=1)
-    fig.add_trace(vec_trace(empty_sz, empty_c, [""]*n, "geo2"), row=1, col=2)
 
-    plotly_frames = []
-    for idx in range(n):
-        pm   = frame_perms[idx]
-        c    = frame_colors[idx]
-        cp   = [c[j]    for j in pm]
-        latp = [lats[j] for j in pm]
-        lonp = [lons[j] for j in pm]
-        htp  = [ht[j]   for j in pm]
-        sz_w = [sizes(idx, r1["large"], r1["small"])[j] for j in pm]
-        sz_u = [sizes(idx, r2["large"], r2["small"])[j] for j in pm]
-        tx_w = [panel_texts(idx, r1)[j] for j in pm]
-        tx_u = [panel_texts(idx, r2)[j] for j in pm]
-        plotly_frames.append(go.Frame(
-            name=f"frame_{idx}",
-            data=[
-                vec_trace(sz_w, cp, tx_w, "geo",  fs=11, lat_=latp, lon_=lonp, ht_=htp),
-                vec_trace(sz_u, cp, tx_u, "geo2", fs=10, lat_=latp, lon_=lonp, ht_=htp),
-            ],
-        ))
-    fig.frames = plotly_frames
+    # ── Dot-map: build grids, then add traces in z-order ─────────────────────
+    # Background dots (traces 0,1) are added first so subscribers (traces 2,3)
+    # are drawn on top.  Non-dot-map mode has only traces 0,1.
+    if dot_map:
+        print("  Building world dot grid ...")
+        world_grid = generate_world_dots()
+        print(f"    {len(world_grid)} world dots")
+        print("  Building UK dot grid ...")
+        uk_grid = generate_uk_dots()
+        print(f"    {len(uk_grid)} UK dots")
+
+        def _bg_trace(dot_list, geo_ref):
+            return go.Scattergeo(
+                lat=[d[0] for d in dot_list],
+                lon=[d[1] for d in dot_list],
+                mode="markers",
+                marker=dict(size=7, color=DOT_BG_COLOR, opacity=0.9, line=dict(width=0)),
+                hoverinfo="skip",
+                showlegend=False,
+                geo=geo_ref,
+            )
+
+        fig.add_trace(_bg_trace(world_grid, "geo"),  row=1, col=1)  # trace 0
+        fig.add_trace(_bg_trace(uk_grid,    "geo2"), row=1, col=2)  # trace 1
+
+        w_lats, w_lons   = _snap_all_world(lats, lons, world_grid)
+        uk_lats, uk_lons = _snap_all(lats, lons, uk_grid)
+
+        # Subscriber traces sit on top of the background (traces 2, 3)
+        fig.add_trace(vec_trace(empty_sz, empty_c, [""]*n, "geo",  lat_=w_lats,  lon_=w_lons),  row=1, col=1)
+        fig.add_trace(vec_trace(empty_sz, empty_c, [""]*n, "geo2", lat_=uk_lats, lon_=uk_lons), row=1, col=2)
+
+        # Pre-compute compact frame data for the JS animation driver.
+        # Sizes are reconstructed in JS from the frame index, avoiding large arrays.
+        dot_frames_js = json.dumps([
+            {"perm": frame_perms[idx], "c": frame_colors[idx]}
+            for idx in range(n)
+        ])
+        fig.frames = []   # JS driver handles animation — no Plotly frames needed
+    else:
+        w_lats, w_lons   = lats, lons
+        uk_lats, uk_lons = lats, lons
+
+        fig.add_trace(vec_trace(empty_sz, empty_c, [""]*n, "geo"),  row=1, col=1)  # trace 0
+        fig.add_trace(vec_trace(empty_sz, empty_c, [""]*n, "geo2"), row=1, col=2)  # trace 1
+
+        plotly_frames = []
+        for idx in range(n):
+            pm   = frame_perms[idx]
+            c    = frame_colors[idx]
+            cp      = [c[j]      for j in pm]
+            htp     = [ht[j]     for j in pm]
+            w_latp  = [w_lats[j]  for j in pm]
+            w_lonp  = [w_lons[j]  for j in pm]
+            uk_latp = [uk_lats[j] for j in pm]
+            uk_lonp = [uk_lons[j] for j in pm]
+            sz_w = [sizes(idx, r1["large"], r1["small"])[j] for j in pm]
+            sz_u = [sizes(idx, r2["large"], r2["small"])[j] for j in pm]
+            tx_w = [panel_texts(idx, r1)[j] for j in pm]
+            tx_u = [panel_texts(idx, r2)[j] for j in pm]
+            plotly_frames.append(go.Frame(
+                name=f"frame_{idx}",
+                data=[
+                    vec_trace(sz_w, cp, tx_w, "geo",  fs=11, lat_=w_latp,  lon_=w_lonp,  ht_=htp),
+                    vec_trace(sz_u, cp, tx_u, "geo2", fs=10, lat_=uk_latp, lon_=uk_lonp, ht_=htp),
+                ],
+            ))
+        fig.frames = plotly_frames
+        dot_frames_js = "[]"
+
+    geo_blank = dict(
+        showland=False, showocean=False, showcoastlines=False,
+        showcountries=False, showframe=False, bgcolor="rgba(0,0,0,0)",
+    )
+    geo_base = geo_blank if dot_map else geo_common
 
     fig.update_layout(
-        geo=dict(**geo_common,  **r1["geo"]),
-        geo2=dict(**geo_common, **r2["geo"]),
+        geo=dict(**geo_base,  **r1["geo"]),
+        geo2=dict(**geo_base, **r2["geo"]),
         title=dict(text="Mailing List Sign-ups",
                    font=dict(size=18, color="#333"), x=0.5, xanchor="center"),
         paper_bgcolor="white",
         updatemenus=[dict(
             type="buttons", showactive=False,
             x=0.01, y=0.99, xanchor="left", yanchor="top",
-            buttons=[
-                dict(label="Play", method="animate",
-                     args=[None, dict(
-                         frame=dict(duration=frame_ms, redraw=True),
-                         fromcurrent=True, transition=dict(duration=0),
-                     )]),
-                dict(label="Pause", method="animate",
-                     args=[[None], dict(frame=dict(duration=0, redraw=False),
-                                        mode="immediate")]),
-            ],
+            buttons=(
+                # dot_map: JS driver controls playback; buttons just fire plotly_buttonclicked
+                [dict(label="Play",  method="skip"),
+                 dict(label="Pause", method="skip")]
+                if dot_map else
+                [dict(label="Play", method="animate",
+                      args=[None, dict(frame=dict(duration=frame_ms, redraw=True),
+                                       fromcurrent=True, transition=dict(duration=0))]),
+                 dict(label="Pause", method="animate",
+                      args=[[None], dict(frame=dict(duration=0, redraw=False),
+                                         mode="immediate")])]
+            ),
         )],
         sliders=[dict(
             active=0, steps=slider_steps,
@@ -820,11 +1098,155 @@ def build_figure(df, satellite=False, frame_ms=800, show_chart=False,
         )],
     )
 
-    if not show_chart:
+    if not show_chart and not dot_map:
         return fig, None
 
-    # ── Vector post-script: mini cumulative chart ─────────────────────────
-    chart_js = _chart_block(show_chart=True, dark=False)
+    interesting_js = json.dumps(interesting)
+    dates_js       = json.dumps([d.strftime("%d %b %Y") for d in dates])
+    companies_js   = json.dumps(companies)
+    chart_js       = _chart_block(show_chart, dark=False)
+
+    # ── dot_map: JS animation driver (Plotly.restyle, same approach as satellite) ──
+    if dot_map:
+        w_large_js  = r1["large"]
+        w_small_js  = r1["small"]
+        uk_large_js = r2["large"]
+        uk_small_js = r2["small"]
+
+        vec_post_script = f"""\
+(function() {{
+  var gd          = document.querySelector('.plotly-graph-div');
+  var fms         = {dot_frames_js};
+  var n           = {n};
+  var ms          = {frame_ms};
+  var tms         = {timestamps_ms_js};
+  var interesting = {interesting_js};
+  var dateStrs    = {dates_js};
+  var companies   = {companies_js};
+  var W_LARGE  = {w_large_js},  W_SMALL  = {w_small_js};
+  var UK_LARGE = {uk_large_js}, UK_SMALL = {uk_small_js};
+
+  var wrap = gd.closest('.js-plotly-plot') || gd.parentElement;
+  wrap.style.position = 'relative';
+
+  {chart_js}
+
+  // Subscriber traces are indices 2 and 3 (0,1 are the static background dots).
+  // Capture the unordered lat/lon arrays once before any restyle mutates them.
+  var lat0_w  = gd.data[2].lat.slice();
+  var lon0_w  = gd.data[2].lon.slice();
+  var lat0_uk = gd.data[3].lat.slice();
+  var lon0_uk = gd.data[3].lon.slice();
+  var hov0    = gd.data[2].hovertext.slice();
+
+  // ── Info panel ────────────────────────────────────────────────────────
+  var panelEl = (function() {{
+    var el = document.createElement('div');
+    el.style.cssText = [
+      'position:absolute','left:50%','top:70px','height:490px',
+      'transform:translateX(-50%)','background:rgba(245,247,251,0.93)',
+      'color:#1e1b4b','padding:10px 14px','border-radius:8px','width:200px',
+      'font-size:11px','font-family:Arial,sans-serif','pointer-events:none',
+      'z-index:100','line-height:1.4','overflow:hidden','box-sizing:border-box',
+    ].join(';');
+    wrap.appendChild(el);
+    return el;
+  }})();
+  var recent = [];
+
+  function updatePanel(i) {{
+    if (interesting[i]) {{
+      recent.unshift({{name: companies[i], date: dateStrs[i]}});
+      if (recent.length > 14) recent.pop();
+    }}
+    if (recent.length === 0) {{ panelEl.innerHTML = ''; return; }}
+    var html = '<div style="font-size:9px;opacity:0.55;margin-bottom:8px;'
+             + 'letter-spacing:.08em;text-transform:uppercase">Recent sign-ups</div>';
+    recent.forEach(function(r, ri) {{
+      var op = Math.max(0.3, 1 - ri * 0.06);
+      var sz = ri === 0 ? '12px' : '11px';
+      var wt = ri === 0 ? 'bold' : 'normal';
+      html += '<div style="margin-bottom:6px;opacity:' + op
+            + ';border-left:2px solid rgba(59,130,246,' + op + ');padding-left:6px">'
+            + '<span style="font-size:' + sz + ';font-weight:' + wt
+            + ';color:#1e1b4b">' + r.name + '</span>'
+            + '<br><span style="font-size:9px;opacity:0.6">' + r.date + '</span>'
+            + '</div>';
+    }});
+    panelEl.innerHTML = html;
+  }}
+
+  function makeSizes(pm, hi, large, small) {{
+    return pm.map(function(j) {{
+      if (j === hi) return large;
+      if (j < hi)   return small;
+      return 0;
+    }});
+  }}
+
+  function applyData(i) {{
+    var f = fms[i], pm = f.perm;
+    function pa(a) {{ return pm.map(function(j) {{ return a[j]; }}); }}
+    updatePanel(i);
+    updateChart(i);
+    return Plotly.restyle(gd, {{
+      'lat':          [pa(lat0_w),  pa(lat0_uk)],
+      'lon':          [pa(lon0_w),  pa(lon0_uk)],
+      'hovertext':    [pa(hov0),    pa(hov0)],
+      'marker.size':  [makeSizes(pm, i, W_LARGE, W_SMALL),
+                       makeSizes(pm, i, UK_LARGE, UK_SMALL)],
+      'marker.color': [pa(f.c),    pa(f.c)],
+    }}, [2, 3]);
+  }}
+
+  function applyFull(i) {{
+    recent = [];
+    for (var j = 0; j <= i; j++) {{
+      if (interesting[j]) recent.push({{name: companies[j], date: dateStrs[j]}});
+    }}
+    recent = recent.slice(-14).reverse();
+    gd.layout.sliders[0].active = i;
+    return applyData(i);
+  }}
+
+  var idx = 0, playing = false;
+
+  function tick() {{
+    if (!playing) return;
+    if (idx < n - 1) {{
+      idx++;
+      applyData(idx).then(function() {{
+        if (playing) setTimeout(tick, ms);
+      }}).catch(function() {{
+        if (playing) setTimeout(tick, ms);
+      }});
+    }} else {{ pause(); }}
+  }}
+  function play()  {{ if (!playing) {{ playing = true;  setTimeout(tick, ms); }} }}
+  function pause() {{ playing = false; }}
+
+  gd.on('plotly_buttonclicked', function(e) {{
+    if (e.button.label === 'Play')  play();
+    if (e.button.label === 'Pause') pause();
+  }});
+  gd.on('plotly_sliderchange', function(e) {{
+    if (playing) return;
+    idx = e.slider.active; applyFull(idx);
+  }});
+  gd.addEventListener('click', function(e) {{
+    var el = e.target;
+    for (var i = 0; i < 8; i++) {{
+      if (!el || el === gd) break;
+      var t = (el.textContent || '').trim();
+      if (t === 'Play')  {{ play();  return; }}
+      if (t === 'Pause') {{ pause(); return; }}
+      el = el.parentElement;
+    }}
+  }}, true);
+}})();"""
+        return fig, vec_post_script
+
+    # ── standard vector mode with chart overlay ───────────────────────────────
     vec_post_script = f"""\
 (function() {{
   var gd  = document.querySelector('.plotly-graph-div');
@@ -873,6 +1295,10 @@ def parse_args():
                    help=f"Named palette ({', '.join(PALETTES)}) or comma-separated "
                         "CSS/hex colours matching the number of thresholds "
                         "(default: BlRd)")
+    p.add_argument("--dot-map", action="store_true",
+                   help="Render the UK panel as a dot-grid silhouette; "
+                        "subscriber markers snap to the nearest grid dot "
+                        "(vector mode only)")
     return p.parse_args()
 
 
@@ -918,11 +1344,18 @@ def main():
 
     regions = [parse_region(r) for r in opts.maps]
     region_labels = [r["label"] for r in regions]
+    dot_map = opts.dot_map
+    if dot_map and satellite:
+        print("  NOTE: --dot-map is only supported in vector mode; ignoring for satellite.")
+        dot_map = False
+
     print(f"Building figure (map-style={opts.map_style}, speed={opts.speed} / {frame_ms}ms, "
-          f"maps={region_labels}, thresholds={thresholds}, palette={opts.palette}, chart={opts.chart}) ...")
+          f"maps={region_labels}, thresholds={thresholds}, palette={opts.palette}, "
+          f"chart={opts.chart}, dot-map={dot_map}) ...")
     fig, post_script = build_figure(df, satellite=satellite, frame_ms=frame_ms,
                                     show_chart=opts.chart, regions=regions,
-                                    thresholds=thresholds, palette_colors=palette_colors)
+                                    thresholds=thresholds, palette_colors=palette_colors,
+                                    dot_map=dot_map)
 
     write_kwargs = {"post_script": post_script} if post_script else {}
     fig.write_html(OUTPUT_HTML, **write_kwargs)
