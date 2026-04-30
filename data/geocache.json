@@ -883,5 +883,153 @@
   "Australia": [
     -25.2744,
     133.7751
+  ],
+  "Norwich": [
+    52.6285576,
+    1.2923954
+  ],
+  "Manchester": [
+    53.4424618,
+    -2.2324547
+  ],
+  "Exeter": [
+    50.7249349,
+    -3.5285631
+  ],
+  "Thessaloniki, Greece": [
+    40.6403167,
+    22.9352716
+  ],
+  "Liverpool": [
+    53.3933411,
+    -2.9166389
+  ],
+  "Birmingham": [
+    52.4948994,
+    -1.8518439
+  ],
+  "Warwick": [
+    52.2821379,
+    -1.5905593
+  ],
+  "Cardiff, United Kingdom": [
+    51.4816546,
+    -3.1791934
+  ],
+  "Belfast, United Kingdom": [
+    54.5975805,
+    -5.9277097
+  ],
+  "Bristol, United Kingdom": [
+    51.4538022,
+    -2.5972985
+  ],
+  "University of St Andrews": [
+    56.3398554,
+    -2.8117775
+  ],
+  "Dundee, United Kingdom": [
+    56.4605938,
+    -2.97019
+  ],
+  "Wellcome Sanger Institute, Hinxton, United Kingdom": [
+    52.0794238,
+    0.1849843
+  ],
+  "London, United Kingdom": [
+    51.5074456,
+    -0.1277653
+  ],
+  "Bloomsbury, London, United Kingdom": [
+    51.5210963,
+    -0.1289635
+  ],
+  "James Hutton institute (Dundee)": [
+    56.4570896,
+    -3.0722008
+  ],
+  "Edinburgh, United Kingdom": [
+    55.9533456,
+    -3.1883749
+  ],
+  "Cambridge, United Kingdom": [
+    52.1975846,
+    0.1391537
+  ],
+  "Bielefeld, Germany": [
+    52.0191005,
+    8.531007
+  ],
+  "South Kensington, London, United Kingdom": [
+    51.4955817,
+    -0.1831368
+  ],
+  "Denmark Hill, London, United Kingdom": [
+    51.468043,
+    -0.0896031
+  ],
+  "Newcastle upon Tyne, United Kingdom": [
+    54.9738474,
+    -1.6131572
+  ],
+  "University College London (Centre of biodiversity and the environment)": [
+    54.7023545,
+    -3.2765753
+  ],
+  "WorkflowHub Community Call": [
+    54.7023545,
+    -3.2765753
+  ],
+  "Hinxton, Cambridgeshire, United Kingdom": [
+    52.0848693,
+    0.1792608
+  ],
+  "Imperial College, London": [
+    51.4989595,
+    -0.1756407
+  ],
+  "York, United Kingdom": [
+    53.9656579,
+    -1.0743052
+  ],
+  "Glasgow, United Kingdom": [
+    55.861155,
+    -4.2501687
+  ],
+  "Amsterdam, Netherlands": [
+    52.3730796,
+    4.8924534
+  ],
+  "Leeds, United Kingdom": [
+    53.7974185,
+    -1.5437941
+  ],
+  "Glasgow": [
+    55.861155,
+    -4.2501687
+  ],
+  "BSCB NextGen - online seminar for ECRs": [
+    54.7023545,
+    -3.2765753
+  ],
+  "Cambridge": [
+    52.2055314,
+    0.1186637
+  ],
+  "University of Aberystwyth": [
+    52.4135633,
+    -4.077606
+  ],
+  "Wales Kidney Research Unit": [
+    54.7023545,
+    -3.2765753
+  ],
+  "Swansea, United Kingdom": [
+    51.6195955,
+    -3.9459248
+  ],
+  "Bradford": [
+    53.7944229,
+    -1.7519186
   ]
 }
